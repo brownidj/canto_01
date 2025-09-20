@@ -1,0 +1,2 @@
+pycantonese>=3.4.0
+setuptools>=65

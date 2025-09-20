@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# PyCharm / JetBrains
+.idea/
+
+# VSCode
+.vscode/
+
+# Project specific
+/shelf/
+/workspace.xml
+/httpRequests/
+/dataSources/
+/dataSources.local.xml
