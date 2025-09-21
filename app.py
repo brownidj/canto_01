@@ -1171,10 +1171,10 @@ class App(tk.Tk):
             approx = jyutping_to_approx(jp)
             self.details.delete("1.0", tk.END)
 
-            # One-line header: Text; Jyutping; English approximation
+            # One-line header: English approximation only
             self.details.insert(
                 tk.END,
-                "Text: {0}; Jyutping: {1}; English approximation: {2}\n".format(text, jp, approx)
+                "English approximation: {0}\n".format(approx)
             )
             # If meanings is exactly "(meaning not available)", add a note and collect examples
             add_service_note = False
