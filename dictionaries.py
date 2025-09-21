@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+"""
+Central dictionaries for the app.
+- MINI_GLOSS: tiny built-in fallback glossary for very common forms (traditional)
+- ANDYS_LIST: Andy's custom list in MINI_GLOSS style
+
+When run directly (python dictionaries.py), this module will merge ANDYS_LIST
+into MINI_GLOSS (in-memory) without duplicates and print a short summary.
+"""
+
+# ------------------------ MINI_GLOSS (very common) ------------------------ #
+MINI_GLOSS = {
+    u"我": ["I", "me"],
+    u"你": ["you"],
+    u"佢": ["he", "she", "they"],
+    u"唔": ["not (Cantonese)"],
+    u"有": ["to have", "there is"],
+    u"冇": ["not have (Cantonese)"],
+    u"去": ["to go"],
+    u"食": ["to eat"],
+    u"飲": ["to drink"],
+    u"學": ["to learn; school (in compounds)"],
+    u"講": ["to speak; to say"],
+    u"睇": ["to look; to watch (Cantonese)"],
+    u"聽": ["to listen"],
+    u"車": ["vehicle; car"],
+    u"書": ["book"],
+    u"電": ["electric; electricity"],
+    u"心": ["heart; mind"],
+    u"頭": ["head; top"],
+    u"手": ["hand"],
+    u"腳": ["leg; foot"],
+    u"日": ["sun; day"],
+    u"月": ["moon; month"],
+    u"年": ["year"],
+    u"香港": ["Hong Kong"],
+    u"廣東話": ["Cantonese (language)"],
+    u"你好": ["hello"],
+    u"然": ["thus", "so", "like that"],
+    u"其": ["its", "his", "her", "their"],
+    u"之": ["(classical genitive/linker)"],
+    u"以": ["to use", "by means of"],
+    u"於": ["at", "in", "to"],
+    u"而": ["and", "and then", "but"],
+    u"則": ["then", "in that case"],
+    u"不": ["not"],
+    u"也": ["also", "too"],
+    u"的": ["(structural/possessive particle)"],
+    u"了": ["(aspect particle)", "completed action"],
+    u"嗎": ["(question particle)"],
+    u"呢": ["(particle: how about…; continuative)"],
+    u"吧": ["(particle: suggestion/softener)"],
+    u"個": ["classifier (general)"],
+    u"嘢": ["thing; stuff", "food/drink (in collocations like 食嘢、飲嘢)"],
+    u"食嘢": ["to eat (colloquial)", "to get something to eat"],
+    u"飲嘢": ["to drink (colloquial)", "to get something to drink"],
+    u"一": ["one"],
+    u"二": ["two"],
+    u"三": ["three"],
+    u"四": ["four"],
+    u"六": ["six"],
+    u"七": ["seven"],
+    u"八": ["eight"],
+    u"九": ["nine"],
+    u"十": ["ten"],
+    u"零": ["zero"],
+    u"人": ["person"],
+}
+
+# ------------------------ Andy's List (MINI_GLOSS-style) ------------------------ #
+ANDYS_LIST = {
+    u"一": ["one"],
+    u"二": ["two"],
+    u"三": ["three"],
+    u"四": ["four"],
+    u"五": ["five"],
+    u"六": ["six"],
+    u"七": ["seven"],
+    u"八": ["eight"],
+    u"九": ["nine"],
+    u"十": ["ten"],
+    u"零": ["zero"],
+    u"我": ["I", "me"],
+    u"人": ["person"],
+}
+
+def merge_andys_into_mini(mini: dict, andys: dict) -> dict:
+    """Merge ANDYS_LIST into MINI_GLOSS in-place, skipping keys that already exist."""
+    for k, v in andys.items():
+        if k not in mini:
+            mini[k] = v
+    return mini
+
+if __name__ == "__main__":
+    before = len(MINI_GLOSS)
+    merged = merge_andys_into_mini(MINI_GLOSS, ANDYS_LIST)
+    after = len(merged)
+    added = after - before
+    print(f"Merged ANDYS_LIST into MINI_GLOSS: added {added} new entries (total {after}).")

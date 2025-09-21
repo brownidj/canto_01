@@ -1,77 +1,54 @@
 # -*- coding: utf-8 -*-
-import re
-import os
-import random
 import collections
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
-import warnings
+import os
 # Audio helpers for TTS (non-blocking)
 import platform
+import random
+import re
 import subprocess
 import threading
+import tkinter as tk
+import warnings
+from tkinter import ttk, messagebox, scrolledtext
+from constants import BOTH_CHAR_RATIO
+
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message="pkg_resources is deprecated as an API.*"
 )
+
+# Optional: simplified conversion using OpenCC (free). If not installed, we silently skip.
+try:
+    from opencc import OpenCC
+    _opencc_t2s = OpenCC('t2s')
+except Exception:
+    _opencc_t2s = None
+
+
+def to_simplified(text: str) -> str:
+    """Convert Traditional → Simplified if OpenCC is available; otherwise return input."""
+    try:
+        if _opencc_t2s:
+            return _opencc_t2s.convert(text)
+    except Exception:
+        pass
+    return text
+
 import pycantonese
 
+from dictionaries import MINI_GLOSS, ANDYS_LIST
+
+CAPP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
 APP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
 CJK_RE = re.compile(u"[\u4E00-\u9FFF]+")
 DICT_FILENAME = os.path.join("assets", "cedict_ts.u8")  # CC-CEDICT in assets/
 CC_CANTO_FILENAME = os.path.join("assets", "cc_canto.u8")  # CC-Canto in assets/
 
+# Divider label for mode dropdown
+DIVIDER_LABEL = "──────────"
 
-# A tiny built-in fallback glossary for very common forms (traditional)
-# (Only used when CC-CEDICT file isn't present or a given key isn't found.)
-MINI_GLOSS = {
-    u"我": ["I", "me"],
-    u"你": ["you"],
-    u"佢": ["he", "she", "they"],
-    u"唔": ["not (Cantonese)"],
-    u"有": ["to have", "there is"],
-    u"冇": ["not have (Cantonese)"],
-    u"去": ["to go"],
-    u"食": ["to eat"],
-    u"飲": ["to drink"],
-    u"學": ["to learn; school (in compounds)"],
-    u"講": ["to speak; to say"],
-    u"睇": ["to look; to watch (Cantonese)"],
-    u"聽": ["to listen"],
-    u"車": ["vehicle; car"],
-    u"書": ["book"],
-    u"電": ["electric; electricity"],
-    u"心": ["heart; mind"],
-    u"頭": ["head; top"],
-    u"手": ["hand"],
-    u"腳": ["leg; foot"],
-    u"日": ["sun; day"],
-    u"月": ["moon; month"],
-    u"年": ["year"],
-    u"香港": ["Hong Kong"],
-    u"廣東話": ["Cantonese (language)"],
-    u"你好": ["hello"],
-    u"然": ["thus", "so", "like that"],
-    u"其": ["its", "his", "her", "their"],
-    u"之": ["(classical genitive/linker)"],
-    u"以": ["to use", "by means of"],
-    u"於": ["at", "in", "to"],
-    u"而": ["and", "and then", "but"],
-    u"則": ["then", "in that case"],
-    u"不": ["not"],
-    u"也": ["also", "too"],
-    u"的": ["(structural/possessive particle)"],
-    u"了": ["(aspect particle)", "completed action"],
-    u"嗎": ["(question particle)"],
-    u"呢": ["(particle: how about…; continuative)"],
-    u"吧": ["(particle: suggestion/softener)"],
-    u"個": ["classifier (general)"],
-    u"嘢": ["thing; stuff", "food/drink (in collocations like 食嘢、飲嘢)"],
-    u"食嘢": ["to eat (colloquial)", "to get something to eat"],
-    u"飲嘢": ["to drink (colloquial)", "to get something to drink"]
-}
 
 # ------------------------ Dictionary (CC-CEDICT) ------------------------ #
 
@@ -155,35 +132,255 @@ def load_cc_canto_dict(path):
         pass
     return gloss
 
-# ------------------ Merged dictionary lookup (CC-Canto > CEDICT > MINI_GLOSS > char comp) ------------------ #
-def lookup_meaning_merged(word, cc_canto_dict, cedict_dict):
-    """
-    Prefer CC-Canto, then CC-CEDICT, then MINI_GLOSS.
-    If still missing and multi-character, compose from individual characters.
-    Returns a list of gloss strings.
-    """
-    # Direct matches (priority order)
-    if word in cc_canto_dict:
-        return cc_canto_dict[word]
-    if word in cedict_dict:
-        return cedict_dict[word]
-    if word in MINI_GLOSS:
-        return MINI_GLOSS[word]
 
-    # Compose from characters if possible
-    if len(word) > 1:
-        parts = []
-        for ch in word:
-            if ch in cc_canto_dict:
-                parts.append(ch + ": " + "; ".join(cc_canto_dict[ch][:2]))
-            elif ch in cedict_dict:
-                parts.append(ch + ": " + "; ".join(cedict_dict[ch][:2]))
-            elif ch in MINI_GLOSS:
-                parts.append(ch + ": " + "; ".join(MINI_GLOSS[ch]))
-        if parts:
-            return [" + ".join(parts)]
+# ------------------ Merged dictionary lookup (CC-Canto > CEDICT > MINI_GLOSS > char comp) ------------------ #
+
+
+def _greedy_seg(word: str, dict_keys: set[str]) -> list[str]:
+    """Greedy left-to-right longest-match segmentation using the provided dictionary keys."""
+    i = 0
+    parts: list[str] = []
+    n = len(word)
+    while i < n:
+        matched = None
+        # Try the longest substring starting at i
+        for j in range(n, i, -1):
+            cand = word[i:j]
+            if cand in dict_keys:
+                matched = cand
+                break
+        if matched is None:
+            matched = word[i:i+1]  # fallback: single character
+        parts.append(matched)
+        i += len(matched)
+    return parts
+
+
+def lookup_meaning_merged(hanzi, cc_canto, cedict):
+    defs = []
+
+    # 1) CC-Canto first
+    defs += cc_canto.get(hanzi, [])
+
+    # 2) Then CEDICT (append, not replace)
+    defs += cedict.get(hanzi, [])
+
+    # 3) Then MINI_GLOSS (append)
+    if hanzi in MINI_GLOSS:
+        defs += MINI_GLOSS[hanzi]
+
+    # 4) Then ANDYS_LIST (append)
+    if hanzi in ANDYS_LIST:
+        defs += ANDYS_LIST[hanzi]
+
+    # De-duplicate while preserving order
+    seen = set()
+    merged = []
+    for d in defs:
+        d_norm = d.strip()
+        if d_norm and d_norm not in seen:
+            seen.add(d_norm)
+            merged.append(d_norm)
+
+    if merged:
+        return merged
+
+    # --- Free fallbacks for multi-character words ---
+    if isinstance(hanzi, str) and len(hanzi) > 1:
+        # 1) Try simplified form (if OpenCC available)
+        simp = to_simplified(hanzi)
+        if simp and simp != hanzi:
+            simp_defs = []
+            simp_defs += cc_canto.get(simp, [])
+            simp_defs += cedict.get(simp, [])
+            for s in simp_defs:
+                s = s.strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    merged.append(s)
+            if merged:
+                return merged
+
+        # 2) Greedy longest-match segmentation with existing dictionary keys (traditional)
+        dict_keys = set(cc_canto.keys()) | set(cedict.keys()) | set(MINI_GLOSS.keys())
+        segs = _greedy_seg(hanzi, dict_keys)
+        seg_glosses = []
+        for seg in segs:
+            g = []
+            g += cc_canto.get(seg, [])
+            g += cedict.get(seg, [])
+            if seg in MINI_GLOSS:
+                g += MINI_GLOSS[seg]
+            if not g and len(seg) == 1 and seg in ANDYS_LIST:
+                g += ANDYS_LIST[seg]
+            if g:
+                seg_glosses.append(seg + ": " + "; ".join(g[:2]))
+            else:
+                seg_glosses.append(seg + ": (no entry)")
+        if seg_glosses:
+            return [" + ".join(seg_glosses)]
 
     return ["(meaning not available)"]
+
+# ------------------ Grammar label extraction & hints ------------------ #
+_LABEL_RE = re.compile(r"^\(([^)]+)\)\s*(.*)$")
+
+# Extra hints for single characters commonly used as particles/markers in Cantonese
+GRAMMAR_HINTS = {
+    "的": ["structural particle", "possessive marker"],
+    "嘅": ["particle", "possessive/structural (Cantonese)"],
+    "了": ["aspect particle", "completed action"],
+    "咗": ["aspect particle (Cantonese)", "perfective"],
+    "過": ["experiential aspect (after verbs)"],
+    "著": ["durative/continuous aspect (literary)", "stative marker"],
+    "緊": ["progressive aspect (Cantonese)"],
+    "嗎": ["question particle"],
+    "呢": ["continuative/question particle"],
+    "吧": ["suggestion/softener particle"],
+    "呀": ["sentence-final particle (Cantonese)", "exclamatory"],
+    "啦": ["sentence-final particle (Cantonese)", "imperative/urging"],
+    "喇": ["sentence-final particle (Cantonese)", "change-of-state"],
+    "囉": ["sentence-final particle (Cantonese)", "assertive"],
+    "個": ["classifier (general)"],
+    "啲": ["classifier (plural/small amount; Cantonese)"],
+    "條": ["classifier (long, thin)"],
+    "隻": ["classifier (animals; one of a pair)"],
+    "件": ["classifier (clothes, matters)"],
+    "唔": ["adverb", "negation (Cantonese)"],
+    "不": ["adverb", "negation (literary/Mandarin)"],
+    "冇": ["verb", "existential negation (Cantonese)"]
+}
+
+
+def extract_labels_and_clean(glosses, hanzi):
+    """Extract leading parenthetical labels from each gloss and return (labels, cleaned_glosses).
+    Also add GRAMMAR_HINTS for single characters when applicable.
+    """
+    labels = []
+    cleaned = []
+    for g in glosses:
+        m = _LABEL_RE.match(g)
+        if m:
+            label, rest = m.groups()
+            # split multiple labels if separated by ',' or ';'
+            for tok in re.split(r",|;", label):
+                tok = tok.strip()
+                if tok and tok not in labels:
+                    labels.append(tok)
+            g = rest.strip()
+        cleaned.append(g)
+    # Single-character extra hints
+    if isinstance(hanzi, str) and len(hanzi) == 1:
+        hints = GRAMMAR_HINTS.get(hanzi)
+        if hints:
+            for h in hints:
+                if h not in labels:
+                    labels.append(h)
+    return labels, cleaned
+
+
+# --- Heuristic POS inference from English glosses ---
+def _infer_pos_labels(glosses):
+    """Heuristically infer POS labels from English glosses.
+    Allows mixed classes (e.g., noun + verb) when evidence appears in different senses.
+    """
+    labels = set()
+    noun_candidate = False  # mark if any sense looks nominal without explicit POS keywords
+    for g in glosses:
+        if not g:
+            continue
+        gl = g.strip().lower()
+        matched_specific = False
+        # Strong keyword matches first
+        if "classifier" in gl or "measure word" in gl:
+            labels.add("classifier")
+            matched_specific = True
+        # Particle subtypes
+        if "question particle" in gl:
+            labels.add("question particle")
+            matched_specific = True
+        if "sentence-final" in gl or "final particle" in gl:
+            labels.add("sentence-final particle")
+            matched_specific = True
+        if "structural" in gl and "particle" in gl:
+            labels.add("structural particle")
+            matched_specific = True
+        if "particle" in gl and "aspect" in gl:
+            labels.add("aspect particle")
+            matched_specific = True
+        elif "particle" in gl:
+            labels.add("particle")
+            matched_specific = True
+        if "interjection" in gl or "exclamation" in gl:
+            labels.add("interjection")
+            matched_specific = True
+        if "pronoun" in gl:
+            labels.add("pronoun")
+            matched_specific = True
+        if "preposition" in gl:
+            labels.add("preposition")
+            matched_specific = True
+        if "conjunction" in gl:
+            labels.add("conjunction")
+            matched_specific = True
+        if "adverb" in gl or gl.startswith("adv. "):
+            labels.add("adverb")
+            matched_specific = True
+        # Verb heuristic: many glosses start verbs with "to ..."
+        if gl.startswith("to ") or gl.startswith("v. "):
+            labels.add("verb")
+            matched_specific = True
+        # Adjective markers
+        if "adjective" in gl or gl.startswith("adj. "):
+            labels.add("adjective")
+            matched_specific = True
+        if "proper noun" in gl:
+            labels.add("proper noun")
+            matched_specific = True
+        if "surname" in gl:
+            labels.add("surname")
+            matched_specific = True
+        if "numeral" in gl:
+            labels.add("numeral")
+            matched_specific = True
+        # If this sense didn't match any explicit POS keyword and doesn't look like a verb, treat as a noun candidate
+        if not matched_specific and not gl.startswith("to "):
+            noun_candidate = True
+
+    # Add noun if any sense looked nominal, or if nothing matched at all
+    if noun_candidate or not labels:
+        labels.add("noun")
+    return list(labels)
+
+
+_POS_ORDER = [
+    "noun", "proper noun", "surname", "numeral",
+    "verb", "adjective", "adverb",
+    "pronoun", "preposition", "conjunction", "interjection",
+    "classifier",
+    "structural particle", "question particle", "sentence-final particle", "aspect particle", "particle",
+]
+
+
+def _sort_labels(labels):
+    order = {k: i for i, k in enumerate(_POS_ORDER)}
+    return sorted(labels, key=lambda x: order.get(x, 999))
+
+
+def format_character_meanings(hanzi, glosses):
+    """Return a single formatted string like '字: (labels) 1. sense; 2. sense' for single characters."""
+    labels, cleaned = extract_labels_and_clean(glosses, hanzi)
+    # If no explicit labels were found, infer from the cleaned glosses
+    if not labels:
+        inferred = _infer_pos_labels(cleaned)
+        for lab in inferred:
+            if lab not in labels:
+                labels.append(lab)
+    numbered = "; ".join(f"{i}. {g}" for i, g in enumerate(cleaned[:6], 1) if g)
+    if labels:
+        return f"{hanzi}: (" + "; ".join(labels) + ") " + numbered
+    else:
+        return f"{hanzi}: " + numbered
 
 
 def lookup_meaning(word, cedict):
@@ -258,6 +455,59 @@ def load_hkcancor_tokens():
     return tokens
 
 
+def _sentence_text_from_tokens(tokens):
+    """Join a list of tokens into a readable sentence string."""
+    try:
+        return "".join(tokens)
+    except Exception:
+        return " ".join(str(t) for t in tokens)
+
+def _jyutping_for_text(text: str) -> str:
+    """Return a rough Jyutping line by mapping per character and joining with spaces."""
+    try:
+        jps = pycantonese.characters_to_jyutping(text) or []
+        out = []
+        for jp in jps:
+            norm = _norm_jyut(jp)
+            if norm:
+                out.append(norm)
+        return " ".join(out)
+    except Exception:
+        return ""
+
+def find_hkcancor_examples(term: str, max_examples: int = 2):
+    """Find up to max_examples sentences from HKCanCor containing the term.
+    Returns list of (text, jyutping_line).
+    """
+    examples = []
+    try:
+        corpus = pycantonese.hkcancor()
+        # Prefer sents() if available
+        try:
+            for sent in corpus.sents():
+                try:
+                    txt = _sentence_text_from_tokens(sent)
+                except Exception:
+                    txt = "".join(sent) if isinstance(sent, (list, tuple)) else str(sent)
+                if term and txt and term in txt:
+                    jp_line = _jyutping_for_text(txt)
+                    examples.append((txt, jp_line))
+                    if len(examples) >= max_examples:
+                        break
+        except Exception:
+            # Fallback to utterances()
+            for utt in corpus.utterances():
+                txt = getattr(utt, "transcript_text", "")
+                if term and txt and term in txt:
+                    jp_line = _jyutping_for_text(txt)
+                    examples.append((txt, jp_line))
+                    if len(examples) >= max_examples:
+                        break
+    except Exception:
+        pass
+    return examples
+
+
 def _norm_jyut(j):
     """
     Normalize various Jyutping return shapes to a plain string.
@@ -285,56 +535,76 @@ def _norm_jyut(j):
 
 # ---------------------- English Approximation ---------------------- #
 
-_JP_APPROX_MAP = {
-    "aa": "ah", "aai": "eye", "aau": "ow",
-    "ai": "eye", "au": "ow",
-    "e": "eh", "ei": "ay", "eu": "eh-oo",
-    "eoi": "oey", "eo": "er", "oe": "ur",
-    "i": "ee", "iu": "yoo",
-    "o": "aw", "oi": "oy", "ou": "oh",
-    "u": "oo", "ui": "oo-ee",
-    "m": "m", "ng": "ng",
-    "am": "ahm", "an": "ahn", "ang": "ahng",
-    "em": "ehm", "en": "enn", "eng": "eng",
-    "im": "eem", "in": "een", "ing": "ing",
-    "om": "awm", "on": "awn", "ong": "awng",
-    "um": "oom", "un": "oon", "ung": "oong",
+# ---------------------- Improved English Approximation ---------------------- #
+
+_INITIAL_MAP = {
+    "b": "b", "p": "p", "m": "m", "f": "f",
+    "d": "d", "t": "t", "n": "n", "l": "l",
+    "g": "g", "k": "k", "ng": "ng", "h": "h",
+    "z": "j",   # Jyutping z ~ English 'j' in 'jam'
+    "c": "ch",  # Jyutping c ~ English 'ch'
+    "s": "s",
+    "gw": "gw", "kw": "kw",
+    "w": "w",
+    "j": "y",   # Jyutping j ~ English 'y'
 }
 
-def _strip_tone(syllable):
+_RIME_MAP = {
+    "aa": "ah", "aai": "eye", "aau": "ow",
+    "a": "ah", "ai": "eye", "au": "ow",
+    "am": "ahm", "an": "ahn", "ang": "ahng",
+    "ap": "ahp", "at": "aht", "ak": "ahk",
+
+    "e": "eh", "ei": "ay", "em": "em", "en": "en", "eng": "eng",
+    "ep": "ep", "et": "et", "ek": "ek",
+    "eoi": "oey", "eo": "er", "oe": "ur",
+
+    "i": "ee", "iu": "yoo",
+    "im": "eem", "in": "een", "ing": "ing",
+    "ip": "eep", "it": "eet", "ik": "eek",
+
+    "o": "aw", "oi": "oy", "ou": "oh",
+    "om": "awm", "on": "awn", "ong": "awng",
+    "op": "awp", "ot": "awt", "ok": "awk",
+
+    "u": "oo", "ui": "oo-ee",
+    "um": "oom", "un": "oon", "ung": "oong",
+    "up": "oop", "ut": "oot", "uk": "ook",
+
+    "m": "m", "ng": "ng",
+}
+
+# ordered list of initials for longest match
+_INITIALS = sorted(_INITIAL_MAP.keys(), key=len, reverse=True)
+
+def _strip_tone(syllable: str) -> str:
     return "".join(ch for ch in syllable if ch not in "123456")
 
-def jyutping_to_approx(jp):
-    """
-    Very rough English-like approximation. Splits multi-syllable Jyutping by spaces,
-    strips tone digits, and maps common finals to rough English hints.
-    """
+def _split_initial_rime(base: str):
+    for ini in _INITIALS:
+        if base.startswith(ini):
+            return ini, base[len(ini):]
+    return "", base
+
+def jyutping_to_approx(jp: str) -> str:
+    """Convert Jyutping to a more complete English-like hint."""
     if not jp:
         return ""
-    parts = [p for p in jp.strip().split() if p]
-    approx_parts = []
-    for p in parts:
-        base = _strip_tone(p)
-        # try direct map first
-        if base in _JP_APPROX_MAP:
-            approx_parts.append(_JP_APPROX_MAP[base])
-            continue
-        # fallback: try to match common finals
-        matched = False
-        for k in sorted(_JP_APPROX_MAP.keys(), key=len, reverse=True):
-            if base.endswith(k):
-                approx_parts.append(_JP_APPROX_MAP[k])
-                matched = True
-                break
-        if not matched:
-            approx_parts.append(base)
-    return " ".join(approx_parts)
-
+    syllables = [p for p in jp.strip().split() if p]
+    outputs = []
+    for syl in syllables:
+        base = _strip_tone(syl).lower()
+        ini, rime = _split_initial_rime(base)
+        ini_hint = _INITIAL_MAP.get(ini, ini)
+        rime_hint = _RIME_MAP.get(rime, rime)
+        outputs.append((ini_hint + rime_hint).strip())
+    return "-".join(outputs)
 
 
 #
 # ------------------------------ macOS Voice Detection ------------------------------ #
 _cached_say_voices = None
+
 
 def _list_say_voices():
     """Return a list of lines from `say -v ?`, or [] if not available."""
@@ -349,6 +619,7 @@ def _list_say_voices():
     except Exception:
         _cached_say_voices = []
         return []
+
 
 def _pick_cantonese_voice(preferred=None):
     """Pick a Cantonese-capable macOS voice. Try `preferred`, else match zh_HK/Cantonese, else None."""
@@ -372,6 +643,7 @@ def _pick_cantonese_voice(preferred=None):
             if ln.startswith(candidate + " ") or ln.split()[0] == candidate:
                 return candidate
     return None
+
 
 # ------------------------------ Tooltips ------------------------------ #
 class ToolTip(object):
@@ -404,6 +676,7 @@ class ToolTip(object):
             tw.destroy()
             self.tipwindow = None
 
+
 TONE_DESCRIPTIONS = {
     "1": "High level",
     "2": "High rising",
@@ -416,13 +689,14 @@ TONE_DESCRIPTIONS = {
 # --------------------------- Tone Colouring --------------------------- #
 
 TONE_COLOURS = {
-    "1": "#ADD8E6",  # High level: light sky blue
-    "2": "#7FCDEB",  # High rising: more blue, less green
+    "1": "#9CC5D6",  # High level: slightly duller sky blue
+    "2": "#8AD6F0",  # High rising: marginally brighter blue
     "3": "#C8A2C8",  # Mid level: lavender
     "4": "#FFB347",  # Low falling: deep amber
     "5": "#FFE1B2",  # Low rising: lighter peach
     "6": "#E3C9A6",  # Low level: soft tan (slightly duller)
 }
+
 
 def tone_from_jyutping(jp):
     """
@@ -437,17 +711,19 @@ def tone_from_jyutping(jp):
             return ch
     return ""
 
+
 def colour_for_jyutping(jp):
     t = tone_from_jyutping(jp)
     return TONE_COLOURS.get(t, "")
 
 
 # ------------------------------ TTS Helpers ------------------------------ #
-VOICE_NAME_MAC = "Sin-ji"   # macOS Cantonese voice (zh_HK)
-SAY_RATE_WPM = 180           # macOS 'say' words per minute
-ESPEAK_VOICE = "zh-yue"     # eSpeak NG Cantonese voice id (fallback on non-macOS)
+VOICE_NAME_MAC = "Sin-ji"  # macOS Cantonese voice (zh_HK)
+SAY_RATE_WPM = 180  # macOS 'say' words per minute
+ESPEAK_VOICE = "zh-yue"  # eSpeak NG Cantonese voice id (fallback on non-macOS)
 
 _def_voice_warned = False
+
 
 def _tts_mac_say(text, voice, rate):
     global _def_voice_warned
@@ -466,6 +742,7 @@ def _tts_mac_say(text, voice, rate):
     except Exception as e:
         print("[TTS] macOS say error:", e)
 
+
 def _tts_espeak(text, voice):
     try:
         v = voice or ESPEAK_VOICE
@@ -476,6 +753,7 @@ def _tts_espeak(text, voice):
     except Exception as e:
         print("[TTS] eSpeak error:", e)
 
+
 def speak_text_async(text, voice=None, rate=None, enabled=True):
     """
     Speak the given Hanzi text in Cantonese without blocking the UI.
@@ -483,6 +761,7 @@ def speak_text_async(text, voice=None, rate=None, enabled=True):
     """
     if not enabled or not text:
         return
+
     def _worker():
         try:
             if platform.system() == "Darwin":
@@ -491,6 +770,7 @@ def speak_text_async(text, voice=None, rate=None, enabled=True):
                 _tts_espeak(text, voice)
         except Exception as e:
             print("[TTS] worker error:", e)
+
     threading.Thread(target=_worker, daemon=True).start()
 
 
@@ -505,15 +785,17 @@ def get_top_char_entries(top_n):
     chars = [ch for ch in big if CJK_RE.match(ch)]
     counter = collections.Counter(chars)
     most_common = [ch for ch, _ in counter.most_common(top_n)]
-    jp_list = pycantonese.characters_to_jyutping("".join(most_common))
 
     entries = []
-    for ch, jp in zip(most_common, jp_list):
-        jp_norm = _norm_jyut(jp)
-        if jp_norm:
-            entries.append({"text": ch, "jyutping": jp_norm})
+    for ch in most_common:
+        try:
+            jps = pycantonese.characters_to_jyutping(ch)
+            jp_norm = _norm_jyut(jps[0] if jps else "")
+            if jp_norm:
+                entries.append({"text": ch, "jyutping": jp_norm})
+        except Exception:
+            continue
     return entries
-
 
 def get_top_word_entries(top_n, min_len=2, max_len=4):
     """
@@ -562,6 +844,25 @@ def get_top_word_entries(top_n, min_len=2, max_len=4):
     return entries
 
 
+# Helper for MINI_GLOSS entries for "Very common" mode
+def get_minigloss_entries():
+    """Return entries from MINI_GLOSS: [{"text": key, "jyutping": joined_jp}]"""
+    return entries_from_gloss_dict(MINI_GLOSS)
+
+
+# Generic builder for MINI_GLOSS-style dicts
+def entries_from_gloss_dict(gloss_dict):
+    """Return entries from a MINI_GLOSS-style dict: [{"text": hanzi, "jyutping": joined_jp}]"""
+    entries = []
+    for key in gloss_dict.keys():
+        jp_chars = pycantonese.characters_to_jyutping(key)
+        jp_normed = [_norm_jyut(jp) for jp in jp_chars] if jp_chars else []
+        jp_normed = [x for x in jp_normed if x]
+        jp_joined = " ".join(jp_normed) if jp_normed else ""
+        entries.append({"text": key, "jyutping": jp_joined})
+    return entries
+
+
 # ------------------------------- Tkinter UI ------------------------------ #
 
 class App(tk.Tk):
@@ -585,19 +886,31 @@ class App(tk.Tk):
         ctrl = ttk.Frame(self, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
 
-        self.mode_var = tk.StringVar(value="characters")  # "characters" or "words"
-        r1 = ttk.Radiobutton(ctrl, text="Characters", value="characters", variable=self.mode_var, command=self.rebuild_pool)
-        r2 = ttk.Radiobutton(ctrl, text="Words", value="words", variable=self.mode_var, command=self.rebuild_pool)
-        r1.grid(row=0, column=0, padx=(0,10))
-        r2.grid(row=0, column=1, padx=(0,10))
+        self.mode_var = tk.StringVar(value="Minimal Common")
+        self._last_mode_label = "Minimal Common"
+        self.mode_combo = ttk.Combobox(
+            ctrl,
+            values=["Minimal Common", "Andy's List", DIVIDER_LABEL, "Characters", "Words", "Both"],
+            textvariable=self.mode_var,
+            state="readonly",
+            width=14,
+        )
+        self.mode_combo.grid(row=0, column=0, padx=(0, 10))
+        self.mode_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
 
-        ttk.Label(ctrl, text="Top-N:").grid(row=0, column=2, padx=(10,4))
-        self.topn_var = tk.IntVar(value=300)
-        self.topn_spin = ttk.Spinbox(ctrl, from_=20, to=5000, increment=10, textvariable=self.topn_var, width=8, command=self.rebuild_pool)
+        self.top_label = ttk.Label(ctrl, text="Total:")
+        self.top_label.grid(row=0, column=2, padx=(10, 4))
+        DEFAULT_TOPN = 300
+        self.topn_var = tk.IntVar(value=DEFAULT_TOPN)
+        self.topn_spin = ttk.Spinbox(ctrl, from_=20, to=5000, increment=10, textvariable=self.topn_var, width=8,
+                                     command=self.rebuild_pool)
         self.topn_spin.grid(row=0, column=3)
+        # Initialize for Minimal Common: show total and disable spin
+        self.topn_var.set(len(MINI_GLOSS))
+        self.topn_spin.configure(state="disabled")
 
-        self.shuffle_btn = ttk.Button(ctrl, text="Shuffle 5", command=self.shuffle)
-        self.shuffle_btn.grid(row=0, column=4, padx=(10,0))
+        self.shuffle_btn = ttk.Button(ctrl, text="Shuffle", command=self.shuffle)
+        self.shuffle_btn.grid(row=0, column=4, padx=(10, 0))
 
         # --- TTS Controls (Cantonese only, no voice dropdown) ---
         self.tts_enabled = tk.BooleanVar(value=True)
@@ -612,7 +925,7 @@ class App(tk.Tk):
         # Quick TTS test button (fixed Cantonese voice)
         self.tts_test_btn = ttk.Button(ctrl, text="Test Voice", command=lambda: speak_text_async(
             "廣東話你好", voice="Sin-ji", rate=self.rate_var.get(), enabled=self.tts_enabled.get()))
-        self.tts_test_btn.grid(row=0, column=8, padx=(8,0))
+        self.tts_test_btn.grid(row=0, column=8, padx=(8, 0))
 
         # Large Jyutping answer line (24pt) shown when a tile is clicked
         self.status_var = tk.StringVar()  # kept for compatibility, but no small label
@@ -643,6 +956,7 @@ class App(tk.Tk):
         self.labels = []
         self.containers = []
         self.label_to_container = {}
+        self.label_tips = {}
         for col in range(5):
             # Outer container acts as a selectable border holder
             cont = tk.Frame(
@@ -652,13 +966,13 @@ class App(tk.Tk):
                 bg=self.cget("bg")
             )
             cont.grid(row=0, column=col, padx=8, pady=8, sticky="nsew")
-            self.tile_frame.grid_columnconfigure(col, weight=1)
+            self.tile_frame.grid_columnconfigure(col, weight=1, minsize=200)
 
             lbl = tk.Label(
                 cont,
                 text="",
                 font=("Helvetica", 44),
-                width=3,
+                width=6,
                 padx=24,
                 pady=18,
                 borderwidth=1,
@@ -667,14 +981,18 @@ class App(tk.Tk):
             # Pack inside the container with small padding so the container colour shows as a border
             lbl.pack(fill="both", expand=True, padx=2, pady=2)
 
+            # Create a tooltip once and store it; we’ll update its text on shuffle
+            tip = ToolTip(lbl, "")
+            self.label_tips[lbl] = tip
+
             self.labels.append(lbl)
             self.containers.append(cont)
             self.label_to_container[lbl] = cont
 
         # Details box below the grid with a thin border and title "DETAILS"
         details_frame = tk.LabelFrame(self, text="DETAILS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
-        details_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0,10))
-        self.details = scrolledtext.ScrolledText(details_frame, height=6, wrap="word")
+        details_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap="word")
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
         self.grid_rowconfigure(2, weight=1)
@@ -706,15 +1024,61 @@ class App(tk.Tk):
             pass
         self.selected_label = lbl
 
+    def _current_mode(self):
+        v = self.mode_var.get()
+        return {
+            "Minimal Common": "very_common",
+            "Andy's List": "andys",
+            "Characters": "characters",
+            "Words": "words",
+            "Both": "both",
+        }.get(v, "very_common")
+
+    def _on_combo_selected(self, event=None):
+        label = self.mode_var.get()
+        if label == DIVIDER_LABEL:
+            # Revert to the last valid selection without triggering a mode change
+            self.mode_var.set(self._last_mode_label)
+            return
+        # Update last valid label and proceed
+        self._last_mode_label = label
+        self._on_mode_change()
+
+    def _on_mode_change(self):
+        mode = self._current_mode()
+        if mode in ("very_common", "andys"):
+            self.top_label.configure(text="Total:")
+            total = len(MINI_GLOSS) if mode == "very_common" else len(ANDYS_LIST)
+            self.topn_var.set(total)
+            self.topn_spin.configure(state="disabled")
+        else:
+            self.top_label.configure(text="Top:")
+            if self.topn_var.get() in (len(MINI_GLOSS), len(ANDYS_LIST)):
+                self.topn_var.set(300)
+            self.topn_spin.configure(state="normal")
+        self.rebuild_pool()
+        self.shuffle()
+
     def rebuild_pool(self):
         """
         Build the candidate pool based on UI (mode + top_n).
         """
-        mode = self.mode_var.get()
+        mode = self._current_mode()
         topn = self.topn_var.get()
         try:
-            if mode == "characters":
+            if mode == "very_common":
+                self.pool = get_minigloss_entries()
+            elif mode == "andys":
+                self.pool = entries_from_gloss_dict(ANDYS_LIST)
+            elif mode == "characters":
                 self.pool = get_top_char_entries(topn)
+            elif mode == "both":
+                # Split Top between characters and words based on BOTH_CHAR_RATIO
+                n_chars = int(topn * BOTH_CHAR_RATIO)
+                n_words = topn - n_chars
+                pool_chars = get_top_char_entries(n_chars)
+                pool_words = get_top_word_entries(n_words, min_len=2, max_len=4)
+                self.pool = pool_chars + pool_words
             else:
                 self.pool = get_top_word_entries(topn, min_len=2, max_len=4)
         except Exception as e:
@@ -748,12 +1112,16 @@ class App(tk.Tk):
                 lbl.configure(bg=bg)
             else:
                 lbl.configure(bg=self.cget("bg"))
-            # Tooltip showing tone explanation for this tile
+            # Tooltip showing tone explanation for this tile (update existing)
             try:
                 tone_digit = tone_from_jyutping(e["jyutping"]) or ""
                 tip_text = TONE_DESCRIPTIONS.get(tone_digit, "")
-                if tip_text:
-                    ToolTip(lbl, tip_text)
+                tip = self.label_tips.get(lbl)
+                if tip is not None:
+                    tip.text = tip_text
+                else:
+                    # Fallback if missing for any reason
+                    self.label_tips[lbl] = ToolTip(lbl, tip_text)
             except Exception:
                 pass
             lbl.bind("<Button-1>", self._make_click_handler(e))
@@ -761,14 +1129,25 @@ class App(tk.Tk):
     def _make_click_handler(self, entry):
         def handler(event):
             text = entry["text"]
-            jp = _norm_jyut(entry["jyutping"])
+            jp = _norm_jyut(entry["jyutping"])  # initial value from pool
+            # For single characters, recompute directly to avoid any misalignment
+            if isinstance(text, str) and len(text) == 1:
+                try:
+                    jps = pycantonese.characters_to_jyutping(text)
+                    if jps:
+                        jp_click = _norm_jyut(jps[0])
+                        if jp_click:
+                            jp = jp_click
+                except Exception:
+                    pass
             meanings = lookup_meaning_merged(text, self.cc_canto, self.cedict)
-            meaning_str = "; ".join(meanings[:6])  # keep popup concise
-            self.status_var.set("Jyutping: {0}".format(jp))
+
+            # Update big Jyutping answer
             try:
                 self.jp_answer.configure(text=jp)
             except Exception:
                 pass
+
             # Speak the clicked Hanzi/word in Cantonese (non-blocking) using UI settings
             try:
                 speak_text_async(
@@ -779,30 +1158,87 @@ class App(tk.Tk):
                 )
             except Exception:
                 pass
+
             # Tone-based recolour (kept)
             bg = colour_for_jyutping(jp)
             if bg:
                 event.widget.configure(bg=bg)
+
             # Highlight the clicked tile (no dialog)
             self._select_label(event.widget)
-            # Clear and append details into the text box (without the Jyutping line)
+
+            # Clear and append details into the text box as a vertical list
             approx = jyutping_to_approx(jp)
             self.details.delete("1.0", tk.END)
-            self.details.insert(tk.END, "English approximation: {0}\n".format(approx))
-            self.details.insert(tk.END, "Meaning(s): {0}\n".format(meaning_str))
+
+            # One-line header: Text; Jyutping; English approximation
+            self.details.insert(
+                tk.END,
+                "Text: {0}; Jyutping: {1}; English approximation: {2}\n".format(text, jp, approx)
+            )
+            # If meanings is exactly "(meaning not available)", add a note and collect examples
+            add_service_note = False
+            examples = []  # initialize to avoid any scope issues
+            if meanings == ["(meaning not available)"]:
+                add_service_note = True
+                # Try usage examples from HKCanCor
+                try:
+                    examples = find_hkcancor_examples(text, max_examples=2)
+                except Exception:
+                    examples = []
+
+            # Show labels for single characters, then list meanings vertically
+            if isinstance(text, str) and len(text) == 1:
+                labels, cleaned = extract_labels_and_clean(meanings, text)
+                if not labels:
+                    labels = _infer_pos_labels(cleaned)
+                labels = _sort_labels(labels)
+                if labels:
+                    self.details.insert(tk.END, "Labels: {0}\n".format("; ".join(labels)))
+                self.details.insert(tk.END, "Meaning(s):\n")
+                for i, g in enumerate(cleaned[:6], 1):
+                    if g:
+                        self.details.insert(tk.END, "  {0}. {1}\n".format(i, g))
+                # Usage examples (show these **before** the service note)
+                if add_service_note and examples:
+                    self.details.insert(tk.END, "Usage (HKCanCor):\n")
+                    for (sent_txt, sent_jp) in examples:
+                        self.details.insert(tk.END, f"  • {sent_txt}\n")
+                        if sent_jp:
+                            self.details.insert(tk.END, f"    {sent_jp}\n")
+                if add_service_note:
+                    self.details.insert(tk.END, "  An Azure or Google service account is required to translate this.\n")
+            else:
+                self.details.insert(tk.END, "Meaning(s):\n")
+                for i, g in enumerate(meanings[:6], 1):
+                    if g:
+                        self.details.insert(tk.END, "  {0}. {1}\n".format(i, g))
+                # Usage examples (show these **before** the service note)
+                if add_service_note and examples:
+                    self.details.insert(tk.END, "Usage (HKCanCor):\n")
+                    for (sent_txt, sent_jp) in examples:
+                        self.details.insert(tk.END, f"  • {sent_txt}\n")
+                        if sent_jp:
+                            self.details.insert(tk.END, f"    {sent_jp}\n")
+                if add_service_note:
+                    self.details.insert(tk.END, "  An Azure or Google service account is required to translate this.\n")
+
         return handler
 
 
 def main():
     try:
         app = App()
-        app.minsize(820, 380)
+        app.minsize(1100, 480)
         app.mainloop()
     except Exception as e:
         # If HKCanCor needs to download and fails, show a helpful message
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("Startup Error", "Problem starting the app:\n{0}\n\nTip: The first call to pycantonese.hkcancor() may download the corpus.".format(e))
+        messagebox.showerror("Startup Error",
+                             "Problem starting the app:\n{0}\n\nTip: The first call to pycantonese.hkcancor() may download the corpus.".format(
+                                 e))
+
 
 if __name__ == "__main__":
     main()
