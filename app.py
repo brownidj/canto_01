@@ -904,8 +904,8 @@ class App(tk.Tk):
         ttk.Checkbutton(ctrl, text="Speak on click", variable=self.tts_enabled).grid(row=0, column=5, padx=(12, 4))
         ttk.Label(ctrl, text="Rate").grid(row=0, column=6, padx=(8, 4))
         ttk.Spinbox(ctrl, from_=100, to=260, increment=10, textvariable=self.rate_var, width=5).grid(row=0, column=7)
-        # Placeholder button between Rate and Test Voice (no function yet)
-        self.make_sound_btn = ttk.Button(ctrl, text="Make sound")
+        # "Make sound" button: plays a random tile's pronunciation
+        self.make_sound_btn = ttk.Button(ctrl, text="Play a sound", command=self._on_make_sound)
         self.make_sound_btn.grid(row=0, column=8, padx=(8, 0))
         # Quick TTS test button (fixed Cantonese voice)
         self.tts_test_btn = ttk.Button(ctrl, text="Test Voice", command=lambda: speak_text_async(
@@ -1080,8 +1080,10 @@ class App(tk.Tk):
         self._on_mode_change()
 
     def _on_mode_change(self):
+        """Handle mode dropdown changes: update labels/spinbox, rebuild pool, and shuffle."""
         mode = self._current_mode()
         if mode in ("very_common", "andys", "tricky"):
+            # Show total count and disable the Top spinbox for fixed dictionaries
             self.top_label.configure(text="Total:")
             if mode == "very_common":
                 total = len(MINI_GLOSS)
@@ -1092,12 +1094,38 @@ class App(tk.Tk):
             self.topn_var.set(total)
             self.topn_spin.configure(state="disabled")
         else:
+            # Character/Word/Both modes: enable Top spinbox
             self.top_label.configure(text="Top:")
             if self.topn_var.get() in (len(MINI_GLOSS), len(ANDYS_LIST), len(TRICKY_INITIALS)):
                 self.topn_var.set(300)
             self.topn_spin.configure(state="normal")
+        # Rebuild and refresh tiles
         self.rebuild_pool()
         self.shuffle()
+
+    def _on_make_sound(self):
+        """Play the pronunciation of one randomly chosen tile from the current five."""
+        try:
+            # Ensure we have a set of tiles to choose from
+            if not self.current_five:
+                self.shuffle()
+            choices = [e for e in (self.current_five or []) if e and e.get("text")]
+            if not choices:
+                messagebox.showinfo("Info", "No tiles available. Try Shuffle first.")
+                return
+            chosen = random.choice(choices)
+            text = chosen.get("text", "")
+            if not text:
+                messagebox.showinfo("Info", "No valid selection to play.")
+                return
+            speak_text_async(
+                text,
+                voice="Sin-ji",
+                rate=self.rate_var.get(),
+                enabled=self.tts_enabled.get(),
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not play sound: {e}")
 
     def rebuild_pool(self):
         """
