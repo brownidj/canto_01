@@ -11,7 +11,15 @@ import tkinter as tk
 import warnings
 from tkinter import ttk, messagebox, scrolledtext
 
-from constants import TONE_COLORS, BOTH_CHAR_RATIO
+from constants import BOTH_CHAR_RATIO
+from messages import PLAY_MODE_MESSAGES
+
+# --- Import TTS settings from settings.py, with safe defaults if missing ---
+try:
+    from settings import SPEAK_ON_CLICK, TTS_RATE
+except Exception:
+    SPEAK_ON_CLICK = True  # default: speak when tile is clicked
+    TTS_RATE = 180  # default macOS say rate (wpm)
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
@@ -625,6 +633,9 @@ class ToolTip(object):
         self.tipwindow = None
         self.widget.bind("<Enter>", self.show)
         self.widget.bind("<Leave>", self.hide)
+        # Add these two lines:
+        self.widget.bind("<FocusIn>", self.show)
+        self.widget.bind("<FocusOut>", self.hide)
 
     def show(self, event=None):
         if self.tipwindow or not self.text:
@@ -636,6 +647,11 @@ class ToolTip(object):
             return
         self.tipwindow = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
+        # Add this so it shows above other windows on macOS:
+        try:
+            tw.wm_attributes("-topmost", True)
+        except Exception:
+            pass
         tw.wm_geometry("+{0}+{1}".format(x, y))
         label = tk.Label(tw, text=self.text, justify="left",
                          background="#FFFFE0", relief="solid", borderwidth=1,
@@ -852,6 +868,10 @@ class App(tk.Tk):
         self.pool = []
         self.current_five = []
 
+        # Audio-first mode gating
+        self.require_audio_before_selection = False
+        self.has_played_for_round = True  # standard mode allows selection immediately
+
         # Dictionary load: direct paths (CC-Canto is guaranteed in assets/cc_canto.u8)
         self.cc_canto = load_cc_canto_dict(CC_CANTO_FILENAME)
         self.cedict = load_cedict_dict(DICT_FILENAME)
@@ -894,39 +914,53 @@ class App(tk.Tk):
         self.shuffle_btn = ttk.Button(ctrl, text="Shuffle", command=self.shuffle)
         self.shuffle_btn.grid(row=0, column=4, padx=(10, 0))
 
-        # --- TTS Controls (Cantonese only, no voice dropdown) ---
-        self.tts_enabled = tk.BooleanVar(value=True)
-        self.rate_var = tk.IntVar()
+        # Play mode: Audio first (default) vs Standard
+        self.play_mode_var = tk.StringVar(value="Audio first")
+        self.play_mode_combo = ttk.Combobox(
+            ctrl,
+            values=["Audio first", "Standard"],
+            state="readonly",
+            width=12,
+            textvariable=self.play_mode_var,
+        )
+        self.play_mode_combo.grid(row=0, column=5, padx=(8, 0))
+        self.play_mode_combo.bind("<<ComboboxSelected>>", self._on_play_mode_change)
 
-        # Default rate
-        self.rate_var.set(180)
+        # --- Audio Controls (no TTS UI; use settings.py) ---
+        # Play button container (no focus ring/highlight management)
+        self.play_container = tk.Frame(
+            ctrl,
+            bd=0,
+            relief="flat",
+            padx=0,
+            pady=0,
+        )
+        self.play_container.grid(row=0, column=6, padx=(8, 0))
 
-        ttk.Checkbutton(ctrl, text="Speak on click", variable=self.tts_enabled).grid(row=0, column=5, padx=(12, 4))
-        ttk.Label(ctrl, text="Rate").grid(row=0, column=6, padx=(8, 4))
-        ttk.Spinbox(ctrl, from_=100, to=260, increment=10, textvariable=self.rate_var, width=5).grid(row=0, column=7)
-        # "Make sound" button: plays a random tile's pronunciation
-        self.make_sound_btn = ttk.Button(ctrl, text="Play a sound", command=self._on_make_sound)
-        self.make_sound_btn.grid(row=0, column=8, padx=(8, 0))
+        self.make_sound_btn = ttk.Button(self.play_container, text="Play", width=10, takefocus=1, command=self._on_make_sound)
+        self.make_sound_btn.pack(fill="both", expand=True)
         # Quick TTS test button (fixed Cantonese voice)
         self.tts_test_btn = ttk.Button(ctrl, text="Test Voice", command=lambda: speak_text_async(
-            "廣東話你好", voice="Sin-ji", rate=self.rate_var.get(), enabled=self.tts_enabled.get()))
-        self.tts_test_btn.grid(row=0, column=9, padx=(8, 0))
+            "廣東話你好", voice="Sin-ji", rate=TTS_RATE, enabled=SPEAK_ON_CLICK))
+        self.tts_test_btn.grid(row=0, column=7, padx=(8, 0))
 
-        # Large Jyutping answer line (24pt) shown when a tile is clicked
-        self.status_var = tk.StringVar()  # kept for compatibility, but no small label
-        self.status_var.set("Jyutping: ")
+        # --- Static UI under the control row ---
+        # Large Jyutping answer line (24pt)
+        self.status_var = tk.StringVar(value="Jyutping: ")
         self.jp_answer = ttk.Label(ctrl, text="", font=("Helvetica", 24, "bold"))
         self.jp_answer.grid(row=1, column=0, columnspan=6, pady=(6, 0), sticky="w")
+        # Play-mode message aligned with the Play mode combobox (column 5)
+        self.mode_msg = ttk.Label(ctrl, text="", font=("Helvetica", 16))
+        self.mode_msg.grid(row=1, column=5, columnspan=3, padx=(8, 0), sticky="w")
 
         # Tone legend bar (inside controls, under the big Jyutping line)
-        legend = ttk.Frame(ctrl)
-        legend.grid(row=2, column=0, columnspan=10, sticky="w", pady=(6, 0))
-        ttk.Label(legend, text="Tone key:").grid(row=0, column=0, padx=(0, 8))
+        self.legend_frame = ttk.Frame(ctrl)
+        self.legend_frame.grid(row=2, column=0, columnspan=10, sticky="w", pady=(6, 0))
+        ttk.Label(self.legend_frame, text="Tone key:").grid(row=0, column=0, padx=(0, 8))
         for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"], start=1):
-            swatch = tk.Label(legend, text="{0}".format(tone), width=4, relief="solid", bd=1)
+            swatch = tk.Label(self.legend_frame, text=f"{tone}", width=4, relief="solid", bd=1)
             swatch.configure(bg=TONE_COLOURS.get(tone, ""))
             swatch.grid(row=0, column=idx, padx=4, pady=2)
-            # Tooltip with tone description
             try:
                 ToolTip(swatch, TONE_DESCRIPTIONS.get(tone, ""))
             except Exception:
@@ -942,8 +976,8 @@ class App(tk.Tk):
         self.containers = []
         self.label_to_container = {}
         self.label_tips = {}
+        self.overlays = {}
         for col in range(5):
-            # Outer container acts as a selectable border holder
             cont = tk.Frame(
                 self.tile_frame,
                 bd=0,
@@ -963,12 +997,25 @@ class App(tk.Tk):
                 borderwidth=1,
                 relief="solid"
             )
-            # Pack inside the container with small padding so the container colour shows as a border
             lbl.pack(fill="both", expand=True, padx=2, pady=2)
 
-            # Create a tooltip once and store it; we’ll update its text on shuffle
             tip = ToolTip(lbl, "")
             self.label_tips[lbl] = tip
+
+            # Small overlay in the top-right corner for ✓ / ✗ feedback
+            ov = tk.Label(
+                cont,
+                text="",
+                font=("Helvetica", 22, "bold"),
+                fg="#2e7d32",  # green (correct) / will switch to red for wrong
+                bg=lbl.cget("bg"),
+                borderwidth=0,
+                padx=0,
+                pady=0,
+            )
+            # Place slightly inset at the top-right of the tile container
+            ov.place(relx=1.0, rely=0.0, anchor="ne", x=-4, y=4)
+            self.overlays[lbl] = ov
 
             self.labels.append(lbl)
             self.containers.append(cont)
@@ -980,17 +1027,74 @@ class App(tk.Tk):
         self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap="word")
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
-        # Sound explanation button (only for tricky initials)
         self.sound_btn = ttk.Button(details_frame, text="Sound explanation", command=self._on_sound_explain)
         self.sound_btn.pack(anchor="w", pady=(4, 0))
-        self.sound_btn.pack_forget()  # start hidden
+        self.sound_btn.pack_forget()
         self._current_initial_for_help = ""
         self.grid_rowconfigure(2, weight=1)
+
+        # Track the target text for Audio first correctness check
+        self.target_text = None
 
         # Build initial pool and populate tiles on startup
         try:
             self.rebuild_pool()
             self.shuffle()
+        except Exception:
+            pass
+
+        # Apply initial mode state (Standard disables Play a sound)
+        self._on_play_mode_change()
+        # If default mode is Audio first, focus Play after UI is realized (ring appears via FocusIn)
+        try:
+            if (self.play_mode_var.get() or "").strip().lower() == "audio first":
+                self.after(80, lambda: self.make_sound_btn.focus_set())
+        except Exception:
+            pass
+
+    def _on_play_mode_change(self, event=None):
+        """Switch between Standard and Audio first modes (enable/disable Play button and set gating)."""
+        play_mode = (self.play_mode_var.get() or "Standard").strip().lower()
+        if play_mode == "audio first":
+            try:
+                self.make_sound_btn.configure(state="normal")
+            except Exception:
+                pass
+            self.require_audio_before_selection = True
+            self.has_played_for_round = False
+        else:
+            try:
+                self.make_sound_btn.configure(state="disabled")
+            except Exception:
+                pass
+            self.require_audio_before_selection = False
+            self.has_played_for_round = True
+        # Unhighlight any current tile selection when switching modes
+        try:
+            self._clear_selection()
+        except Exception:
+            pass
+        # Clear blue selection highlight in the Combobox entry (macOS)
+        try:
+            self.play_mode_combo.selection_clear()
+            self.play_mode_combo.icursor('end')
+        except Exception:
+            pass
+
+        # Move focus depending on mode (no focus ring management)
+        try:
+            if play_mode == "audio first":
+                self.make_sound_btn.focus_set()
+            else:
+                self.shuffle_btn.focus_set()
+        except Exception:
+            pass
+        # Update play-mode help text (aligned under the combobox)
+        try:
+            if play_mode == "audio first":
+                self.mode_msg.configure(text=PLAY_MODE_MESSAGES["play_mode"][0])
+            else:
+                self.mode_msg.configure(text=PLAY_MODE_MESSAGES["play_mode"][1])
         except Exception:
             pass
 
@@ -1058,7 +1162,7 @@ class App(tk.Tk):
             pass
         self.selected_label = lbl
 
-    def _current_mode(self):
+    def _current_list_mode(self):
         v = self.mode_var.get()
         return {
             "Minimal Common": "very_common",
@@ -1081,7 +1185,7 @@ class App(tk.Tk):
 
     def _on_mode_change(self):
         """Handle mode dropdown changes: update labels/spinbox, rebuild pool, and shuffle."""
-        mode = self._current_mode()
+        mode = self._current_list_mode()
         if mode in ("very_common", "andys", "tricky"):
             # Show total count and disable the Top spinbox for fixed dictionaries
             self.top_label.configure(text="Total:")
@@ -1118,12 +1222,16 @@ class App(tk.Tk):
             if not text:
                 messagebox.showinfo("Info", "No valid selection to play.")
                 return
+            # Remember the target text for Audio first correctness check
+            self.target_text = text
             speak_text_async(
                 text,
                 voice="Sin-ji",
-                rate=self.rate_var.get(),
-                enabled=self.tts_enabled.get(),
+                rate=TTS_RATE,
+                enabled=SPEAK_ON_CLICK,
             )
+            # Allow selection for this round in Audio first mode
+            self.has_played_for_round = True
         except Exception as e:
             messagebox.showerror("Error", f"Could not play sound: {e}")
 
@@ -1131,7 +1239,7 @@ class App(tk.Tk):
         """
         Build the candidate pool based on UI (mode + top_n).
         """
-        mode = self._current_mode()
+        mode = self._current_list_mode()
         topn = self.topn_var.get()
         try:
             if mode == "very_common":
@@ -1159,8 +1267,24 @@ class App(tk.Tk):
     def shuffle(self):
         # Clear any previous selection highlight
         self._clear_selection()
+        # Clear all overlay marks
+        try:
+            for _lbl, _ov in self.overlays.items():
+                _ov.configure(text="")
+        except Exception:
+            pass
+        # Reset target
+        self.target_text = None
         if hasattr(self, "jp_answer"):
             self.jp_answer.configure(text="")
+            # Clear the Details box
+        if hasattr(self, "details"):
+            self.details.delete("1.0", tk.END)
+        # Reset audio-first gate each shuffle
+        if self.require_audio_before_selection:
+            self.has_played_for_round = False
+        else:
+            self.has_played_for_round = True
         if not self.pool:
             self.rebuild_pool()
         if len(self.pool) < 5:
@@ -1182,6 +1306,14 @@ class App(tk.Tk):
                 lbl.configure(bg=bg)
             else:
                 lbl.configure(bg=self.cget("bg"))
+            # Sync overlay background and clear any previous mark
+            try:
+                ov = self.overlays.get(lbl)
+                if ov is not None:
+                    ov.configure(text="")
+                    ov.configure(bg=lbl.cget("bg"))
+            except Exception:
+                pass
             # Tooltip showing tone explanation for this tile (update existing)
             try:
                 tone_digit = tone_from_jyutping(e["jyutping"]) or ""
@@ -1226,6 +1358,10 @@ class App(tk.Tk):
 
     def _make_click_handler(self, entry):
         def handler(event):
+            # In Audio first mode, require the user to play a random sound before selection
+            if self.require_audio_before_selection and not self.has_played_for_round:
+                messagebox.showinfo("Audio first", "Click ‘Play’ before selecting a tile.")
+                return
             text = entry["text"]
             jp = _norm_jyut(entry["jyutping"])  # initial value from pool
             # For single characters, recompute directly to avoid any misalignment
@@ -1238,6 +1374,28 @@ class App(tk.Tk):
                             jp = jp_click
                 except Exception:
                     pass
+
+            # Clear previous overlay marks
+            # (Persistence: do NOT clear overlays here, so previous ticks/crosses remain visible)
+            # try:
+            #     for _lbl, _ov in self.overlays.items():
+            #         _ov.configure(text="")
+            # except Exception:
+            #     pass
+
+            # In Audio first mode, show tick/cross depending on correctness (only after Play)
+            try:
+                play_mode = (self.play_mode_var.get() or "").strip().lower()
+                if play_mode == "audio first" and self.has_played_for_round:
+                    ov = self.overlays.get(event.widget)
+                    if ov is not None:
+                        if getattr(self, "target_text", None) and text == self.target_text:
+                            ov.configure(text="✓", fg="#2e7d32")  # green tick
+                        else:
+                            ov.configure(text="✗", fg="#c62828")  # red cross
+                        ov.lift()
+            except Exception:
+                pass
 
             # Decide whether to show the sound explanation button based on initial
             ini = self._derive_initial_from_jp(jp)
@@ -1261,13 +1419,13 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-            # Speak the clicked Hanzi/word in Cantonese (non-blocking) using UI settings
+            # Speak the clicked Hanzi/word in Cantonese (non-blocking) using settings.py config
             try:
                 speak_text_async(
                     text,
                     voice="Sin-ji",
-                    rate=self.rate_var.get(),
-                    enabled=self.tts_enabled.get()
+                    rate=TTS_RATE,
+                    enabled=SPEAK_ON_CLICK,
                 )
             except Exception:
                 pass
@@ -1289,7 +1447,6 @@ class App(tk.Tk):
                 tk.END,
                 "English approximation: {0}\n".format(approx)
             )
-            # If meanings is exactly "(meaning not available)", add a note and collect examples
             # If meanings is exactly "(meaning not available)", add a note and collect examples
             add_service_note = False
             examples = []  # initialize to avoid any scope issues
