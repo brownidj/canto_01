@@ -871,6 +871,8 @@ class App(tk.Tk):
         # Audio-first mode gating
         self.require_audio_before_selection = False
         self.has_played_for_round = True  # standard mode allows selection immediately
+        # Track whether the play-mode hint is currently visible
+        self.mode_msg_visible = False
 
         # Dictionary load: direct paths (CC-Canto is guaranteed in assets/cc_canto.u8)
         self.cc_canto = load_cc_canto_dict(CC_CANTO_FILENAME)
@@ -948,10 +950,20 @@ class App(tk.Tk):
         # Large Jyutping answer line (24pt)
         self.status_var = tk.StringVar(value="Jyutping: ")
         self.jp_answer = ttk.Label(ctrl, text="", font=("Helvetica", 24, "bold"))
-        self.jp_answer.grid(row=1, column=0, columnspan=6, pady=(6, 0), sticky="w")
+        self.jp_answer.grid(row=1, column=0, columnspan=5, pady=(6, 0), sticky="w")
         # Play-mode message aligned with the Play mode combobox (column 5)
-        self.mode_msg = ttk.Label(ctrl, text="", font=("Helvetica", 16))
-        self.mode_msg.grid(row=1, column=5, columnspan=3, padx=(8, 0), sticky="w")
+        # Instructions textbox aligned with the Play mode combobox (column 5)
+        self.instructions_box = tk.Text(
+            ctrl,
+            height=2,
+            width=50,
+            font=("Helvetica", 16),
+            wrap="word",
+            state="disabled",
+            relief="flat",
+            bg=self.cget("bg")
+        )
+        self.instructions_box.grid(row=1, column=5, columnspan=3, padx=(8, 0), sticky="w")
 
         # Tone legend bar (inside controls, under the big Jyutping line)
         self.legend_frame = ttk.Frame(ctrl)
@@ -1045,6 +1057,8 @@ class App(tk.Tk):
 
         # Apply initial mode state (Standard disables Play a sound)
         self._on_play_mode_change()
+        # Show appropriate mode message on first run
+        self._show_instructions_message()
         # If default mode is Audio first, focus Play after UI is realized (ring appears via FocusIn)
         try:
             if (self.play_mode_var.get() or "").strip().lower() == "audio first":
@@ -1081,6 +1095,12 @@ class App(tk.Tk):
         except Exception:
             pass
 
+        # Shuffle tiles automatically on mode change
+        try:
+            self.shuffle()
+        except Exception:
+            pass
+
         # Move focus depending on mode (no focus ring management)
         try:
             if play_mode == "audio first":
@@ -1089,14 +1109,39 @@ class App(tk.Tk):
                 self.shuffle_btn.focus_set()
         except Exception:
             pass
-        # Update play-mode help text (aligned under the combobox)
+
+        # Update play-mode help text using central messages and mark visible
+        self._show_instructions_message()
+
+    def _show_instructions_message(self, text: str | None = None):
+        """Show an instructions message in the instructions_box; if text is None, pick from current mode."""
         try:
-            if play_mode == "audio first":
-                self.mode_msg.configure(text=PLAY_MODE_MESSAGES["play_mode"][0])
-            else:
-                self.mode_msg.configure(text=PLAY_MODE_MESSAGES["play_mode"][1])
+            if text is None:
+                mode = (self.play_mode_var.get() or "").strip().lower()
+                if mode == "audio first":
+                    text = PLAY_MODE_MESSAGES["play_mode"][0]
+                else:
+                    text = PLAY_MODE_MESSAGES["play_mode"][1]
+            self.instructions_box.configure(state="normal")
+            self.instructions_box.delete("1.0", tk.END)
+            self.instructions_box.insert(tk.END, text)
+            self.instructions_box.configure(state="disabled")
+            self.mode_msg_visible = True
         except Exception:
             pass
+
+    def _hide_instructions_message(self):
+        """Clear the instructions textbox without removing the widget."""
+        try:
+            self.instructions_box.configure(state="normal")
+            self.instructions_box.delete("1.0", tk.END)
+            self.instructions_box.configure(state="disabled")
+            self.mode_msg_visible = False
+        except Exception:
+            pass
+
+
+
 
     def _derive_initial_from_jp(self, jp: str) -> str:
         try:
@@ -1232,6 +1277,19 @@ class App(tk.Tk):
             )
             # Allow selection for this round in Audio first mode
             self.has_played_for_round = True
+            # --- Custom logic: print NUMBER_OF_CHANCES if mode is audio first ---
+            try:
+                mode = (self.play_mode_var.get() or "").strip().lower()
+                if mode == "audio first":
+                    try:
+                        from settings import NUMBER_OF_CHANCES
+                        print("NUMBER_OF_CHANCES:", NUMBER_OF_CHANCES)
+                    except Exception:
+                        pass
+                if mode == "audio first" and self.mode_msg_visible:
+                    self._hide_instructions_message()
+            except Exception:
+                pass
         except Exception as e:
             messagebox.showerror("Error", f"Could not play sound: {e}")
 
@@ -1362,6 +1420,13 @@ class App(tk.Tk):
             if self.require_audio_before_selection and not self.has_played_for_round:
                 messagebox.showinfo("Audio first", "Click ‘Play’ before selecting a tile.")
                 return
+            # In Standard mode, hide the hint as soon as a tile is selected
+            try:
+                mode = (self.play_mode_var.get() or "").strip().lower()
+                if mode == "standard" and self.mode_msg_visible:
+                    self._hide_instructions_message()
+            except Exception:
+                pass
             text = entry["text"]
             jp = _norm_jyut(entry["jyutping"])  # initial value from pool
             # For single characters, recompute directly to avoid any misalignment
