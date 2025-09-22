@@ -74,36 +74,79 @@ TRICKY_INITIALS = {
     u"早": ["early; morning"],
     u"鐘": ["clock; bell"],
     u"張": ["classifier for flat objects; sheet"],
+    u"自然": ["nature"],
+    u"資料": ["data"],
+    u"做運": ["to exercise"],
+    u"自然界": ["nature"],
+    u"資料庫": ["database"],
+    u"做運動": ["to exercise"],
+    u"中學生": ["middle school student"],
 
     # c initial (aspirated /tsʰ/)
     u"車": ["vehicle; car"],
     u"菜": ["vegetable; dish"],
     u"唱": ["to sing"],
     u"長": ["long; elder"],
+    u"餐廳裡": ["in the restaurant"],
+    u"傳統節": ["traditional festival"],
+    u"參觀團": ["tour group"],
+    u"採訪者": ["interviewer"],
 
     # j initial (/j/, English y in yes)
     u"有": ["to have; there is"],
     u"要": ["to want; to need"],
     u"魚": ["fish"],
     u"月": ["moon; month"],
+    u"有人": ["someone"],
+    u"要求": ["to request"],
+    u"魚市": ["fish market"],
+    u"月球": ["moon"],
+    u"有人說": ["someone said"],
+    u"要求高": ["high demand"],
+    u"魚市場": ["fish market"],
+    u"月球人": ["moon person (astronaut)"],
 
     # gw initial
     u"廣": ["broad; vast (as in 廣東 Guangdong)"],
     u"貴": ["expensive; noble"],
     u"國": ["country; nation"],
     u"棍": ["stick; rod"],
+    u"廣播": ["broadcast"],
+    u"貴族": ["aristocrat"],
+    u"國際": ["international"],
+    u"棍棒": ["stick"],
+    u"廣播站": ["broadcast station"],
+    u"貴族家": ["aristocratic family"],
+    u"國際線": ["international route"],
+    u"棍棒隊": ["stick-wielding team"],
 
     # kw initial
     u"快": ["fast; quick"],
     u"窮": ["poor"],
     u"群": ["group; crowd"],
     u"葵": ["sunflower"],
+    u"快捷": ["fast"],
+    u"窮學": ["poor student"],
+    u"群體": ["group"],
+    u"葵花": ["sunflower"],
+    u"快捷鍵": ["shortcut key"],
+    u"窮學生": ["poor student"],
+    u"群體性": ["group nature"],
+    u"葵花籽": ["sunflower seed"],
 
     # ng initial
     u"我": ["I; me"],
     u"五": ["five"],
     u"牙": ["tooth"],
     u"牛": ["cow; ox"],
+    u"我自": ["myself"],
+    u"五金": ["hardware"],
+    u"牙醫": ["dentist"],
+    u"牛肉": ["beef"],
+    u"我自己": ["myself"],
+    u"五金店": ["hardware store"],
+    u"牙醫師": ["dentist"],
+    u"牛肉麵": ["beef noodles"],
 }
 
 # ------------------------ Andy's List (MINI_GLOSS-style) ------------------------ #
@@ -137,3 +180,4 @@ if __name__ == "__main__":
     after = len(merged)
     added = after - before
     print(f"Merged ANDYS_LIST into MINI_GLOSS: added {added} new entries (total {after}).")
+
