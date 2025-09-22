@@ -10,6 +10,7 @@ import threading
 import tkinter as tk
 import warnings
 from tkinter import ttk, messagebox, scrolledtext
+
 from constants import BOTH_CHAR_RATIO
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
@@ -22,6 +23,7 @@ warnings.filterwarnings(
 # Optional: simplified conversion using OpenCC (free). If not installed, we silently skip.
 try:
     from opencc import OpenCC
+
     _opencc_t2s = OpenCC('t2s')
 except Exception:
     _opencc_t2s = None
@@ -36,9 +38,10 @@ def to_simplified(text: str) -> str:
         pass
     return text
 
+
 import pycantonese
 
-from dictionaries import MINI_GLOSS, ANDYS_LIST
+from dictionaries import MINI_GLOSS, ANDYS_LIST, TRICKY_INITIALS
 
 CAPP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
 APP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
@@ -50,62 +53,17 @@ CC_CANTO_FILENAME = os.path.join("assets", "cc_canto.u8")  # CC-Canto in assets/
 DIVIDER_LABEL = "──────────"
 
 
-# ------------------------ Dictionary (CC-CEDICT) ------------------------ #
+# ------------------------ Dictionary (CC-family) ------------------------ #
 
-def load_cedict_dict(path):
+def _load_cedict_like(path):
     """
-    Load a subset of CC-CEDICT into a dictionary: {traditional: [glosses...]}
-    File format lines look like:
-        傳統 簡体 [pin1 yin1] /meaning 1/meaning 2/...
-    Returns a dict. If file not present, returns {}.
-    """
-    if not os.path.exists(path):
-        return {}
-
-    gloss = {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                # Split: Traditional, Simplified, rest
-                # Find first space (traditional) and second space (simplified)
-                parts = line.split(" ", 2)
-                if len(parts) < 3:
-                    continue
-                trad = parts[0]
-                rest = parts[2]
-                # meanings separated by /.../ after the pinyin bracket block
-                slash_idx = rest.find(" /")
-                if slash_idx == -1:
-                    continue
-                meanings_part = rest[slash_idx + 1:]  # starts with /meaning...
-                # strip leading/trailing slashes and split
-                meanings = [m for m in meanings_part.strip("/").split("/") if m]
-                if trad and meanings:
-                    # Append to list if multiple entries per headword
-                    existing = gloss.get(trad, [])
-                    # Avoid duplicates
-                    for m in meanings:
-                        if m not in existing:
-                            existing.append(m)
-                    gloss[trad] = existing
-    except Exception:
-        # On any parsing error, just return what we have so far (or empty)
-        pass
-    return gloss
-
-
-def load_cc_canto_dict(path):
-    """
-    Load CC-Canto (Cantonese-focused CEDICT variant) into a dict {traditional: [glosses...]}.
-    Format is typically the same as CEDICT (traditional simplified [jyutping/... or pinyin] /.../).
-    Returns {} if file not present.
+    Load a CEDICT-like file into {traditional: [glosses...]}. Lines look like:
+      傳統 簡体 [pin1 yin1] /meaning 1/meaning 2/...
+    Returns {} if file not present or unreadable.
     """
     if not os.path.exists(path):
         return {}
-    gloss = {}
+    out = {}
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -123,14 +81,22 @@ def load_cc_canto_dict(path):
                 meanings_part = rest[slash_idx + 1:]
                 meanings = [m for m in meanings_part.strip("/").split("/") if m]
                 if trad and meanings:
-                    existing = gloss.get(trad, [])
+                    bucket = out.get(trad, [])
                     for m in meanings:
-                        if m not in existing:
-                            existing.append(m)
-                    gloss[trad] = existing
+                        if m not in bucket:
+                            bucket.append(m)
+                    out[trad] = bucket
     except Exception:
         pass
-    return gloss
+    return out
+
+
+def load_cedict_dict(path):
+    return _load_cedict_like(path)
+
+
+def load_cc_canto_dict(path):
+    return _load_cedict_like(path)
 
 
 # ------------------ Merged dictionary lookup (CC-Canto > CEDICT > MINI_GLOSS > char comp) ------------------ #
@@ -150,7 +116,7 @@ def _greedy_seg(word: str, dict_keys: set[str]) -> list[str]:
                 matched = cand
                 break
         if matched is None:
-            matched = word[i:i+1]  # fallback: single character
+            matched = word[i:i + 1]  # fallback: single character
         parts.append(matched)
         i += len(matched)
     return parts
@@ -221,6 +187,7 @@ def lookup_meaning_merged(hanzi, cc_canto, cedict):
             return [" + ".join(seg_glosses)]
 
     return ["(meaning not available)"]
+
 
 # ------------------ Grammar label extraction & hints ------------------ #
 _LABEL_RE = re.compile(r"^\(([^)]+)\)\s*(.*)$")
@@ -462,6 +429,7 @@ def _sentence_text_from_tokens(tokens):
     except Exception:
         return " ".join(str(t) for t in tokens)
 
+
 def _jyutping_for_text(text: str) -> str:
     """Return a rough Jyutping line by mapping per character and joining with spaces."""
     try:
@@ -474,6 +442,7 @@ def _jyutping_for_text(text: str) -> str:
         return " ".join(out)
     except Exception:
         return ""
+
 
 def find_hkcancor_examples(term: str, max_examples: int = 2):
     """Find up to max_examples sentences from HKCanCor containing the term.
@@ -541,12 +510,12 @@ _INITIAL_MAP = {
     "b": "b", "p": "p", "m": "m", "f": "f",
     "d": "d", "t": "t", "n": "n", "l": "l",
     "g": "g", "k": "k", "ng": "ng", "h": "h",
-    "z": "j",   # Jyutping z ~ English 'j' in 'jam'
-    "c": "ch",  # Jyutping c ~ English 'ch'
+    "z": "z",  # Jyutping z ≈ unaspirated ts (dz/ts); use "z" for clarity
+    "c": "ts",  # Jyutping c ≈ aspirated ts; simplified to "ts"
     "s": "s",
     "gw": "gw", "kw": "kw",
     "w": "w",
-    "j": "y",   # Jyutping j ~ English 'y'
+    "j": "y",  # Jyutping j ~ English 'y'
 }
 
 _RIME_MAP = {
@@ -577,14 +546,17 @@ _RIME_MAP = {
 # ordered list of initials for longest match
 _INITIALS = sorted(_INITIAL_MAP.keys(), key=len, reverse=True)
 
+
 def _strip_tone(syllable: str) -> str:
     return "".join(ch for ch in syllable if ch not in "123456")
+
 
 def _split_initial_rime(base: str):
     for ini in _INITIALS:
         if base.startswith(ini):
             return ini, base[len(ini):]
     return "", base
+
 
 def jyutping_to_approx(jp: str) -> str:
     """Convert Jyutping to a more complete English-like hint."""
@@ -774,13 +746,17 @@ def speak_text_async(text, voice=None, rate=None, enabled=True):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def _big_cjk_string_from_tokens(tokens):
+    return "".join([t if isinstance(t, str) else str(t) for t in tokens])
+
+
 def get_top_char_entries(top_n):
     """
     Count individual CJK characters; return top_n as list of dicts:
     [{"text": ch, "jyutping": jp}, ...]
     """
     tokens = load_hkcancor_tokens()
-    big = "".join([t if isinstance(t, str) else str(t) for t in tokens])
+    big = _big_cjk_string_from_tokens(tokens)
     # Keep only CJK chars
     chars = [ch for ch in big if CJK_RE.match(ch)]
     counter = collections.Counter(chars)
@@ -797,6 +773,7 @@ def get_top_char_entries(top_n):
             continue
     return entries
 
+
 def get_top_word_entries(top_n, min_len=2, max_len=4):
     """
     Build CJK word tokens (contiguous CJK sequences), filter by length,
@@ -804,7 +781,7 @@ def get_top_word_entries(top_n, min_len=2, max_len=4):
     [{"text": word, "jyutping": "char1_jp char2_jp ..."}, ...]
     """
     tokens = load_hkcancor_tokens()
-    big = "".join([t if isinstance(t, str) else str(t) for t in tokens])
+    big = _big_cjk_string_from_tokens(tokens)
     # Extract contiguous CJK sequences (words-ish); then filter lengths
     seqs = CJK_RE.findall(big)
     words = []
@@ -870,6 +847,11 @@ class App(tk.Tk):
         tk.Tk.__init__(self)
         self.title(APP_TITLE)
 
+        # Initialize runtime state early to avoid AttributeError before first shuffle
+        self.selected_label = None
+        self.pool = []
+        self.current_five = []
+
         # Dictionary load: direct paths (CC-Canto is guaranteed in assets/cc_canto.u8)
         self.cc_canto = load_cc_canto_dict(CC_CANTO_FILENAME)
         self.cedict = load_cedict_dict(DICT_FILENAME)
@@ -890,7 +872,7 @@ class App(tk.Tk):
         self._last_mode_label = "Minimal Common"
         self.mode_combo = ttk.Combobox(
             ctrl,
-            values=["Minimal Common", "Andy's List", DIVIDER_LABEL, "Characters", "Words", "Both"],
+            values=["Minimal Common", "Andy's List", "Tricky Initials", DIVIDER_LABEL, "Characters", "Words", "Both"],
             textvariable=self.mode_var,
             state="readonly",
             width=14,
@@ -995,7 +977,56 @@ class App(tk.Tk):
         self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap="word")
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
+        # Sound explanation button (only for tricky initials)
+        self.sound_btn = ttk.Button(details_frame, text="Sound explanation", command=self._on_sound_explain)
+        self.sound_btn.pack(anchor="w", pady=(4, 0))
+        self.sound_btn.pack_forget()  # start hidden
+        self._current_initial_for_help = ""
         self.grid_rowconfigure(2, weight=1)
+
+        # Build initial pool and populate tiles on startup
+        try:
+            self.rebuild_pool()
+            self.shuffle()
+        except Exception:
+            pass
+
+    def _derive_initial_from_jp(self, jp: str) -> str:
+        try:
+            base = "".join(ch for ch in jp if ch not in "123456").lower()
+            ini, _ = _split_initial_rime(base)
+            return ini
+        except Exception:
+            return ""
+
+    def _on_sound_explain(self):
+        ini = self._current_initial_for_help or ""
+        if not ini:
+            return
+        explanations = {
+            "z": (
+                "Jyutping z",
+                "In Jyutping, z represents an unaspirated alveolar affricate /ts/ (between English 'dz' in 'kids' and 'ts' in 'cats').\n\n"
+                "Many learners prefer to write this as 'z', 'dz', or 'ts' for clarity."
+            ),
+            "c": (
+                "Jyutping c",
+                "In Jyutping, c represents an aspirated alveolar affricate /tsʰ/ — like 'ts' with a puff of air (as in 'cats', but stronger).\n\n"
+                "It's often approximated as 'ts' (or 'ts(h)')."
+            ),
+            "j": (
+                "Jyutping j",
+                "In Jyutping, j is the glide /j/, like English 'y' in 'yes' — not English 'j' (/dʒ/).\n\n"
+                "So 'ji' is close to 'yee'."
+            ),
+            "ng": (
+                "Jyutping ng",
+                "A syllable-initial /ŋ/ (the 'ng' in 'sing'), but at the start of a syllable. English rarely begins words with this, so it can feel unusual."
+            ),
+        }
+        if ini in explanations:
+            title, msg = explanations[ini]
+            messagebox.showinfo(title=title, message=msg)
 
         self.pool = []
         self.current_five = []
@@ -1004,7 +1035,7 @@ class App(tk.Tk):
         self.shuffle()
 
     def _clear_selection(self):
-        if self.selected_label is not None:
+        if getattr(self, "selected_label", None) is not None:
             try:
                 cont = self.label_to_container.get(self.selected_label)
                 if cont is not None:
@@ -1029,6 +1060,7 @@ class App(tk.Tk):
         return {
             "Minimal Common": "very_common",
             "Andy's List": "andys",
+            "Tricky Initials": "tricky",
             "Characters": "characters",
             "Words": "words",
             "Both": "both",
@@ -1046,14 +1078,19 @@ class App(tk.Tk):
 
     def _on_mode_change(self):
         mode = self._current_mode()
-        if mode in ("very_common", "andys"):
+        if mode in ("very_common", "andys", "tricky"):
             self.top_label.configure(text="Total:")
-            total = len(MINI_GLOSS) if mode == "very_common" else len(ANDYS_LIST)
+            if mode == "very_common":
+                total = len(MINI_GLOSS)
+            elif mode == "andys":
+                total = len(ANDYS_LIST)
+            else:  # tricky
+                total = len(TRICKY_INITIALS)
             self.topn_var.set(total)
             self.topn_spin.configure(state="disabled")
         else:
             self.top_label.configure(text="Top:")
-            if self.topn_var.get() in (len(MINI_GLOSS), len(ANDYS_LIST)):
+            if self.topn_var.get() in (len(MINI_GLOSS), len(ANDYS_LIST), len(TRICKY_INITIALS)):
                 self.topn_var.set(300)
             self.topn_spin.configure(state="normal")
         self.rebuild_pool()
@@ -1070,6 +1107,8 @@ class App(tk.Tk):
                 self.pool = get_minigloss_entries()
             elif mode == "andys":
                 self.pool = entries_from_gloss_dict(ANDYS_LIST)
+            elif mode == "tricky":
+                self.pool = entries_from_gloss_dict(TRICKY_INITIALS)
             elif mode == "characters":
                 self.pool = get_top_char_entries(topn)
             elif mode == "both":
@@ -1126,6 +1165,34 @@ class App(tk.Tk):
                 pass
             lbl.bind("<Button-1>", self._make_click_handler(e))
 
+    def _render_meanings_block(self, text, meanings, is_single_char, add_service_note, examples):
+        """Write meanings (and labels if single char), then examples, then note, into DETAILS."""
+        if is_single_char:
+            labels, cleaned = extract_labels_and_clean(meanings, text)
+            if not labels:
+                labels = _infer_pos_labels(cleaned)
+            labels = _sort_labels(labels)
+            if labels:
+                self.details.insert(tk.END, "Labels: {0}\n".format("; ".join(labels)))
+            self.details.insert(tk.END, "Meaning(s):\n")
+            for i, g in enumerate(cleaned[:6], 1):
+                if g:
+                    self.details.insert(tk.END, "  {0}. {1}\n".format(i, g))
+        else:
+            self.details.insert(tk.END, "Meaning(s):\n")
+            for i, g in enumerate(meanings[:6], 1):
+                if g:
+                    self.details.insert(tk.END, "  {0}. {1}\n".format(i, g))
+        # Examples before note
+        if add_service_note and examples:
+            self.details.insert(tk.END, "Usage (HKCanCor):\n")
+            for (sent_txt, sent_jp) in examples:
+                self.details.insert(tk.END, f"  • {sent_txt}\n")
+                if sent_jp:
+                    self.details.insert(tk.END, f"    {sent_jp}\n")
+        if add_service_note:
+            self.details.insert(tk.END, "  An Azure or Google service account is required to translate this.\n")
+
     def _make_click_handler(self, entry):
         def handler(event):
             text = entry["text"]
@@ -1140,6 +1207,21 @@ class App(tk.Tk):
                             jp = jp_click
                 except Exception:
                     pass
+
+            # Decide whether to show the sound explanation button based on initial
+            ini = self._derive_initial_from_jp(jp)
+            self._current_initial_for_help = ini
+            if ini in {"z", "c", "j", "ng"}:
+                try:
+                    self.sound_btn.pack(anchor="w")
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.sound_btn.pack_forget()
+                except Exception:
+                    pass
+
             meanings = lookup_meaning_merged(text, self.cc_canto, self.cedict)
 
             # Update big Jyutping answer
@@ -1177,6 +1259,7 @@ class App(tk.Tk):
                 "English approximation: {0}\n".format(approx)
             )
             # If meanings is exactly "(meaning not available)", add a note and collect examples
+            # If meanings is exactly "(meaning not available)", add a note and collect examples
             add_service_note = False
             examples = []  # initialize to avoid any scope issues
             if meanings == ["(meaning not available)"]:
@@ -1187,41 +1270,8 @@ class App(tk.Tk):
                 except Exception:
                     examples = []
 
-            # Show labels for single characters, then list meanings vertically
-            if isinstance(text, str) and len(text) == 1:
-                labels, cleaned = extract_labels_and_clean(meanings, text)
-                if not labels:
-                    labels = _infer_pos_labels(cleaned)
-                labels = _sort_labels(labels)
-                if labels:
-                    self.details.insert(tk.END, "Labels: {0}\n".format("; ".join(labels)))
-                self.details.insert(tk.END, "Meaning(s):\n")
-                for i, g in enumerate(cleaned[:6], 1):
-                    if g:
-                        self.details.insert(tk.END, "  {0}. {1}\n".format(i, g))
-                # Usage examples (show these **before** the service note)
-                if add_service_note and examples:
-                    self.details.insert(tk.END, "Usage (HKCanCor):\n")
-                    for (sent_txt, sent_jp) in examples:
-                        self.details.insert(tk.END, f"  • {sent_txt}\n")
-                        if sent_jp:
-                            self.details.insert(tk.END, f"    {sent_jp}\n")
-                if add_service_note:
-                    self.details.insert(tk.END, "  An Azure or Google service account is required to translate this.\n")
-            else:
-                self.details.insert(tk.END, "Meaning(s):\n")
-                for i, g in enumerate(meanings[:6], 1):
-                    if g:
-                        self.details.insert(tk.END, "  {0}. {1}\n".format(i, g))
-                # Usage examples (show these **before** the service note)
-                if add_service_note and examples:
-                    self.details.insert(tk.END, "Usage (HKCanCor):\n")
-                    for (sent_txt, sent_jp) in examples:
-                        self.details.insert(tk.END, f"  • {sent_txt}\n")
-                        if sent_jp:
-                            self.details.insert(tk.END, f"    {sent_jp}\n")
-                if add_service_note:
-                    self.details.insert(tk.END, "  An Azure or Google service account is required to translate this.\n")
+            is_single_char = isinstance(text, str) and len(text) == 1
+            self._render_meanings_block(text, meanings, is_single_char, add_service_note, examples)
 
         return handler
 

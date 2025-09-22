@@ -67,6 +67,45 @@ MINI_GLOSS = {
     u"人": ["person"],
 }
 
+# ------------------------ Tricky Initials (examples) ------------------------ #
+TRICKY_INITIALS = {
+    # z initial (unaspirated /ts/)
+    u"走": ["to run; to leave"],
+    u"早": ["early; morning"],
+    u"鐘": ["clock; bell"],
+    u"張": ["classifier for flat objects; sheet"],
+
+    # c initial (aspirated /tsʰ/)
+    u"車": ["vehicle; car"],
+    u"菜": ["vegetable; dish"],
+    u"唱": ["to sing"],
+    u"長": ["long; elder"],
+
+    # j initial (/j/, English y in yes)
+    u"有": ["to have; there is"],
+    u"要": ["to want; to need"],
+    u"魚": ["fish"],
+    u"月": ["moon; month"],
+
+    # gw initial
+    u"廣": ["broad; vast (as in 廣東 Guangdong)"],
+    u"貴": ["expensive; noble"],
+    u"國": ["country; nation"],
+    u"棍": ["stick; rod"],
+
+    # kw initial
+    u"快": ["fast; quick"],
+    u"窮": ["poor"],
+    u"群": ["group; crowd"],
+    u"葵": ["sunflower"],
+
+    # ng initial
+    u"我": ["I; me"],
+    u"五": ["five"],
+    u"牙": ["tooth"],
+    u"牛": ["cow; ox"],
+}
+
 # ------------------------ Andy's List (MINI_GLOSS-style) ------------------------ #
 ANDYS_LIST = {
     u"一": ["one"],
@@ -82,6 +121,7 @@ ANDYS_LIST = {
     u"零": ["zero"],
     u"我": ["I", "me"],
     u"人": ["person"],
+    u"者": ["he", "she", "they"],
 }
 
 def merge_andys_into_mini(mini: dict, andys: dict) -> dict:
