@@ -11,7 +11,7 @@ import tkinter as tk
 import warnings
 from tkinter import ttk, messagebox, scrolledtext
 
-from constants import BOTH_CHAR_RATIO
+from constants import TONE_COLORS, BOTH_CHAR_RATIO
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
@@ -904,10 +904,13 @@ class App(tk.Tk):
         ttk.Checkbutton(ctrl, text="Speak on click", variable=self.tts_enabled).grid(row=0, column=5, padx=(12, 4))
         ttk.Label(ctrl, text="Rate").grid(row=0, column=6, padx=(8, 4))
         ttk.Spinbox(ctrl, from_=100, to=260, increment=10, textvariable=self.rate_var, width=5).grid(row=0, column=7)
+        # Placeholder button between Rate and Test Voice (no function yet)
+        self.make_sound_btn = ttk.Button(ctrl, text="Make sound")
+        self.make_sound_btn.grid(row=0, column=8, padx=(8, 0))
         # Quick TTS test button (fixed Cantonese voice)
         self.tts_test_btn = ttk.Button(ctrl, text="Test Voice", command=lambda: speak_text_async(
             "廣東話你好", voice="Sin-ji", rate=self.rate_var.get(), enabled=self.tts_enabled.get()))
-        self.tts_test_btn.grid(row=0, column=8, padx=(8, 0))
+        self.tts_test_btn.grid(row=0, column=9, padx=(8, 0))
 
         # Large Jyutping answer line (24pt) shown when a tile is clicked
         self.status_var = tk.StringVar()  # kept for compatibility, but no small label
