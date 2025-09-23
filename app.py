@@ -890,11 +890,11 @@ class App(tk.Tk):
         ctrl = ttk.Frame(self, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
 
-        self.mode_var = tk.StringVar(value="Minimal Common")
+        self.mode_var = tk.StringVar(value="Andy's List")
         self._last_mode_label = "Minimal Common"
         self.mode_combo = ttk.Combobox(
             ctrl,
-            values=["Minimal Common", "Andy's List", "Tricky Initials", DIVIDER_LABEL, "Characters", "Words", "Both"],
+            values=["Andy's List", "Minimal Common", "Tricky Initials", DIVIDER_LABEL, "Characters", "Words", "Both"],
             textvariable=self.mode_var,
             state="readonly",
             width=14,
@@ -902,32 +902,30 @@ class App(tk.Tk):
         self.mode_combo.grid(row=0, column=0, padx=(0, 10))
         self.mode_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
 
-        self.top_label = ttk.Label(ctrl, text="Total:")
+        self.top_label = ttk.Label(ctrl, text="Words:")
         self.top_label.grid(row=0, column=2, padx=(10, 4))
         DEFAULT_TOPN = 300
         self.topn_var = tk.IntVar(value=DEFAULT_TOPN)
-        self.topn_spin = ttk.Spinbox(ctrl, from_=20, to=5000, increment=10, textvariable=self.topn_var, width=8,
+        self.topn_spin = ttk.Spinbox(ctrl, from_=20, to=5000, increment=10, textvariable=self.topn_var, width=5,
                                      command=self.rebuild_pool)
         self.topn_spin.grid(row=0, column=3)
         # Initialize for Minimal Common: show total and disable spin
-        self.topn_var.set(len(MINI_GLOSS))
+        self.topn_var.set(len(ANDYS_LIST))
         self.topn_spin.configure(state="disabled")
 
         self.shuffle_btn = ttk.Button(ctrl, text="Shuffle", command=self.shuffle)
         self.shuffle_btn.grid(row=0, column=4, padx=(10, 0))
 
-        # Play mode: Audio first (default) vs Standard
-        self.play_mode_var = tk.StringVar(value="Audio first")
+        # Play mode: Listen & Choose (default) vs Hear Pronunciation
+        self.play_mode_var = tk.StringVar(value="Listen & Choose")
         self.play_mode_combo = ttk.Combobox(
             ctrl,
-            values=["Audio first", "Standard"],
+            values=["Listen & Choose", "Hear Pronunciation"],
             state="readonly",
-            width=12,
+            width=24,
             textvariable=self.play_mode_var,
         )
-        self.play_mode_combo.grid(row=0, column=5, padx=(8, 0))
-        self.play_mode_combo.bind("<<ComboboxSelected>>", self._on_play_mode_change)
-
+        # Move Play sound button before mode combobox (column 5)
         # --- Audio Controls (no TTS UI; use settings.py) ---
         # Play button container (no focus ring/highlight management)
         self.play_container = tk.Frame(
@@ -937,10 +935,14 @@ class App(tk.Tk):
             padx=0,
             pady=0,
         )
-        self.play_container.grid(row=0, column=6, padx=(8, 0))
+        self.play_container.grid(row=0, column=5, padx=(8, 0))
 
-        self.make_sound_btn = ttk.Button(self.play_container, text="Play", width=10, takefocus=1, command=self._on_make_sound)
+        self.make_sound_btn = ttk.Button(self.play_container, text="Play sound", width=10, takefocus=1, command=self._on_make_sound)
         self.make_sound_btn.pack(fill="both", expand=True)
+
+        self.play_mode_combo.grid(row=0, column=6, padx=(8, 0))
+        self.play_mode_combo.bind("<<ComboboxSelected>>", self._on_play_mode_change)
+
         # Quick TTS test button (fixed Cantonese voice)
         self.tts_test_btn = ttk.Button(ctrl, text="Test Voice", command=lambda: speak_text_async(
             "廣東話你好", voice="Sin-ji", rate=TTS_RATE, enabled=SPEAK_ON_CLICK))
@@ -951,19 +953,19 @@ class App(tk.Tk):
         self.status_var = tk.StringVar(value="Jyutping: ")
         self.jp_answer = ttk.Label(ctrl, text="", font=("Helvetica", 24, "bold"))
         self.jp_answer.grid(row=1, column=0, columnspan=5, pady=(6, 0), sticky="w")
-        # Play-mode message aligned with the Play mode combobox (column 5)
-        # Instructions textbox aligned with the Play mode combobox (column 5)
+        # Play-mode message aligned with the Play sound button (now at column 5)
+        # Instructions textbox aligned with the Play sound button (column 5)
         self.instructions_box = tk.Text(
             ctrl,
             height=2,
-            width=50,
+            width=70,
             font=("Helvetica", 16),
             wrap="word",
             state="disabled",
             relief="flat",
             bg=self.cget("bg")
         )
-        self.instructions_box.grid(row=1, column=5, columnspan=3, padx=(8, 0), sticky="w")
+        self.instructions_box.grid(row=1, column=5, columnspan=3, padx=(0, 0), sticky="w")
 
         # Tone legend bar (inside controls, under the big Jyutping line)
         self.legend_frame = ttk.Frame(ctrl)
@@ -1045,7 +1047,7 @@ class App(tk.Tk):
         self._current_initial_for_help = ""
         self.grid_rowconfigure(2, weight=1)
 
-        # Track the target text for Audio first correctness check
+        # Track the target text for Recognise pronunciation correctness check
         self.target_text = None
 
         # Build initial pool and populate tiles on startup
@@ -1059,17 +1061,17 @@ class App(tk.Tk):
         self._on_play_mode_change()
         # Show appropriate mode message on first run
         self._show_instructions_message()
-        # If default mode is Audio first, focus Play after UI is realized (ring appears via FocusIn)
+        # If default mode is Listen & Choose, focus Play after UI is realized (ring appears via FocusIn)
         try:
-            if (self.play_mode_var.get() or "").strip().lower() == "audio first":
+            if (self.play_mode_var.get() or "").strip().lower() == "listen & choose":
                 self.after(80, lambda: self.make_sound_btn.focus_set())
         except Exception:
             pass
 
     def _on_play_mode_change(self, event=None):
-        """Switch between Standard and Audio first modes (enable/disable Play button and set gating)."""
-        play_mode = (self.play_mode_var.get() or "Standard").strip().lower()
-        if play_mode == "audio first":
+        """Switch between Hear Pronunciation and Listen & Choose modes (enable/disable Play button and set gating)."""
+        play_mode = (self.play_mode_var.get() or "hear pronunciation").strip().lower()
+        if play_mode == "listen & choose":
             try:
                 self.make_sound_btn.configure(state="normal")
             except Exception:
@@ -1103,7 +1105,7 @@ class App(tk.Tk):
 
         # Move focus depending on mode (no focus ring management)
         try:
-            if play_mode == "audio first":
+            if play_mode == "listen & choose":
                 self.make_sound_btn.focus_set()
             else:
                 self.shuffle_btn.focus_set()
@@ -1118,7 +1120,7 @@ class App(tk.Tk):
         try:
             if text is None:
                 mode = (self.play_mode_var.get() or "").strip().lower()
-                if mode == "audio first":
+                if mode == "listen & choose":
                     text = PLAY_MODE_MESSAGES["play_mode"][0]
                 else:
                     text = PLAY_MODE_MESSAGES["play_mode"][1]
@@ -1267,7 +1269,7 @@ class App(tk.Tk):
             if not text:
                 messagebox.showinfo("Info", "No valid selection to play.")
                 return
-            # Remember the target text for Audio first correctness check
+            # Remember the target text for Listen & Choose correctness check
             self.target_text = text
             speak_text_async(
                 text,
@@ -1275,18 +1277,18 @@ class App(tk.Tk):
                 rate=TTS_RATE,
                 enabled=SPEAK_ON_CLICK,
             )
-            # Allow selection for this round in Audio first mode
+            # Allow selection for this round in Listen & Choose mode
             self.has_played_for_round = True
-            # --- Custom logic: print NUMBER_OF_CHANCES if mode is audio first ---
+            # --- Custom logic: print NUMBER_OF_CHANCES if mode is Listen & Choose ---
             try:
                 mode = (self.play_mode_var.get() or "").strip().lower()
-                if mode == "audio first":
+                if mode == "listen & choose":
                     try:
                         from settings import NUMBER_OF_CHANCES
                         print("NUMBER_OF_CHANCES:", NUMBER_OF_CHANCES)
                     except Exception:
                         pass
-                if mode == "audio first" and self.mode_msg_visible:
+                if mode == "listen & choose" and self.mode_msg_visible:
                     self._hide_instructions_message()
             except Exception:
                 pass
@@ -1416,14 +1418,14 @@ class App(tk.Tk):
 
     def _make_click_handler(self, entry):
         def handler(event):
-            # In Audio first mode, require the user to play a random sound before selection
+            # In Listen & Choose mode, require the user to play a random sound before selection
             if self.require_audio_before_selection and not self.has_played_for_round:
-                messagebox.showinfo("Audio first", "Click ‘Play’ before selecting a tile.")
+                messagebox.showinfo("Recognise pronunciation", "Click ‘Play’ before selecting a tile.")
                 return
-            # In Standard mode, hide the hint as soon as a tile is selected
+            # In Hear Pronunciation mode, hide the hint as soon as a tile is selected
             try:
                 mode = (self.play_mode_var.get() or "").strip().lower()
-                if mode == "standard" and self.mode_msg_visible:
+                if mode == "hear pronunciation" and self.mode_msg_visible:
                     self._hide_instructions_message()
             except Exception:
                 pass
@@ -1448,10 +1450,10 @@ class App(tk.Tk):
             # except Exception:
             #     pass
 
-            # In Audio first mode, show tick/cross depending on correctness (only after Play)
+            # In Listen & Choose mode, show tick/cross depending on correctness (only after Play)
             try:
                 play_mode = (self.play_mode_var.get() or "").strip().lower()
-                if play_mode == "audio first" and self.has_played_for_round:
+                if play_mode == "listen & choose" and self.has_played_for_round:
                     ov = self.overlays.get(event.widget)
                     if ov is not None:
                         if getattr(self, "target_text", None) and text == self.target_text:
