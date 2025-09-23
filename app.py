@@ -51,7 +51,7 @@ import pycantonese
 
 from dictionaries import MINI_GLOSS, ANDYS_LIST, TRICKY_INITIALS
 
-CAPP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
+# CAPP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
 APP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
 CJK_RE = re.compile(u"[\u4E00-\u9FFF]+")
 DICT_FILENAME = os.path.join("assets", "cedict_ts.u8")  # CC-CEDICT in assets/
@@ -1041,9 +1041,6 @@ class App(tk.Tk):
         self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap="word")
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
-        self.sound_btn = ttk.Button(details_frame, text="Sound explanation", command=self._on_sound_explain)
-        self.sound_btn.pack(anchor="w", pady=(4, 0))
-        self.sound_btn.pack_forget()
         self._current_initial_for_help = ""
         self.grid_rowconfigure(2, weight=1)
 
@@ -1153,40 +1150,7 @@ class App(tk.Tk):
         except Exception:
             return ""
 
-    def _on_sound_explain(self):
-        ini = self._current_initial_for_help or ""
-        if not ini:
-            return
-        explanations = {
-            "z": (
-                "Jyutping z",
-                "In Jyutping, z represents an unaspirated alveolar affricate /ts/ (between English 'dz' in 'kids' and 'ts' in 'cats').\n\n"
-                "Many learners prefer to write this as 'z', 'dz', or 'ts' for clarity."
-            ),
-            "c": (
-                "Jyutping c",
-                "In Jyutping, c represents an aspirated alveolar affricate /tsʰ/ — like 'ts' with a puff of air (as in 'cats', but stronger).\n\n"
-                "It's often approximated as 'ts' (or 'ts(h)')."
-            ),
-            "j": (
-                "Jyutping j",
-                "In Jyutping, j is the glide /j/, like English 'y' in 'yes' — not English 'j' (/dʒ/).\n\n"
-                "So 'ji' is close to 'yee'."
-            ),
-            "ng": (
-                "Jyutping ng",
-                "A syllable-initial /ŋ/ (the 'ng' in 'sing'), but at the start of a syllable. English rarely begins words with this, so it can feel unusual."
-            ),
-        }
-        if ini in explanations:
-            title, msg = explanations[ini]
-            messagebox.showinfo(title=title, message=msg)
-
-        self.pool = []
-        self.current_five = []
-        self.selected_label = None
-        self.rebuild_pool()
-        self.shuffle()
+    # _on_sound_explain removed; explanation now shown directly in details
 
     def _clear_selection(self):
         if getattr(self, "selected_label", None) is not None:
@@ -1235,7 +1199,7 @@ class App(tk.Tk):
         mode = self._current_list_mode()
         if mode in ("very_common", "andys", "tricky"):
             # Show total count and disable the Top spinbox for fixed dictionaries
-            self.top_label.configure(text="Total:")
+            self.top_label.configure(text="Words:")
             if mode == "very_common":
                 total = len(MINI_GLOSS)
             elif mode == "andys":
@@ -1464,19 +1428,9 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-            # Decide whether to show the sound explanation button based on initial
+            # Insert sound explanation directly for tricky initials
             ini = self._derive_initial_from_jp(jp)
             self._current_initial_for_help = ini
-            if ini in {"z", "c", "j", "ng"}:
-                try:
-                    self.sound_btn.pack(anchor="w")
-                except Exception:
-                    pass
-            else:
-                try:
-                    self.sound_btn.pack_forget()
-                except Exception:
-                    pass
 
             meanings = lookup_meaning_merged(text, self.cc_canto, self.cedict)
 
@@ -1527,6 +1481,33 @@ class App(tk.Tk):
 
             is_single_char = isinstance(text, str) and len(text) == 1
             self._render_meanings_block(text, meanings, is_single_char, add_service_note, examples)
+
+            # Directly append explanation for tricky initials after meanings block
+            if ini in {"z", "c", "j", "ng"}:
+                self.details.insert(tk.END, "---\n")
+                explanations = {
+                    "z": (
+                        "Jyutping z",
+                        "In Jyutping, z represents an unaspirated alveolar affricate /ts/ (between English 'dz' in 'kids' and 'ts' in 'cats').\n\n"
+                        "Many learners prefer to write this as 'z', 'dz', or 'ts' for clarity."
+                    ),
+                    "c": (
+                        "Jyutping c",
+                        "In Jyutping, c represents an aspirated alveolar affricate /tsʰ/ — like 'ts' with a puff of air (as in 'cats', but stronger).\n\n"
+                        "It's often approximated as 'ts' (or 'ts(h)')."
+                    ),
+                    "j": (
+                        "Jyutping j",
+                        "In Jyutping, j is the glide /j/, like English 'y' in 'yes' — not English 'j' (/dʒ/).\n\n"
+                        "So 'ji' is close to 'yee'."
+                    ),
+                    "ng": (
+                        "Jyutping ng",
+                        "A syllable-initial /ŋ/ (the 'ng' in 'sing'), but at the start of a syllable. English rarely begins words with this, so it can feel unusual."
+                    ),
+                }
+                title, msg = explanations[ini]
+                self.details.insert(tk.END, f"{title}:\n{msg}\n")
 
         return handler
 
