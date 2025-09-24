@@ -176,6 +176,13 @@ TEST_WORDS = {
     u"廣播站": ["broadcast station"],
     u"廣播電台": ["broadcasting company"],
     u"廣播新聞": ["news broadcast"],
+    u"機艙廣播": ["in-flight announcements"],
+    u"校園廣播": ["school PA announcements"],
+    u"電視": ["television"],
+    u"電話": ["telephone"],
+    u"電腦": ["computer"],
+    u"火車站": ["train station"],
+    u"電影院": ["cinema"],
 }
 
 
@@ -192,4 +199,3 @@ if __name__ == "__main__":
     after = len(merged)
     added = after - before
     print(f"Merged ANDYS_LIST into MINI_GLOSS: added {added} new entries (total {after}).")
-

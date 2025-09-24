@@ -14,11 +14,13 @@ from tkinter import ttk, messagebox, scrolledtext
 from constants import (BOTH_CHAR_RATIO,
                        TONE_DESCRIPTIONS,
                        TONE_COLOURS,
+                       TONE_KEY_TEXT_COLOURS,
                        TOOLTIP_DELAY,
                        PLAY_TOOLTIP,
                        PLAYMODE_TOOLTIP,
                        MODE_TOOLTIP,
                        TOPN_TOOLTIP)
+LIGHT_TILE_BG = "#F5F5F5"  # very light grey, tone-neutral
 from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE, DUPLICATE_WARNING
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
@@ -54,6 +56,7 @@ except Exception:
     JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
     JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
+
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
     "ignore",
@@ -68,6 +71,30 @@ try:
     _opencc_t2s = OpenCC('t2s')
 except Exception:
     _opencc_t2s = None
+# --- Robust Jyutping syllable splitter ---
+_JP_SYL_RE = re.compile(r"[a-z]+[1-6]", flags=re.IGNORECASE)
+
+def _safe_split_syllables(jp_chunk: str) -> list[str]:
+    """
+    Split a Jyutping chunk into syllables. Handles:
+    - Space-separated forms: "gwong2 bo3"
+    - Concatenated forms:   "gwong2bo3"
+    Returns a list like ["gwong2", "bo3"].
+    """
+    if not jp_chunk:
+        return []
+    jp_chunk = _norm_jyut(jp_chunk).strip()
+    if not jp_chunk:
+        return []
+    # Fast path: spaces already present
+    parts = [p for p in jp_chunk.split() if p]
+    if len(parts) >= 2:
+        return parts
+    # Regex fallback: find all letter+tone groups
+    found = _JP_SYL_RE.findall(jp_chunk)
+    if found:
+        return found
+    return parts if parts else [jp_chunk]
 
 
 def to_simplified(text: str) -> str:
@@ -82,7 +109,7 @@ def to_simplified(text: str) -> str:
 
 import pycantonese
 
-from dictionaries import MINI_GLOSS, ANDYS_LIST, TRICKY_INITIALS
+from dictionaries import MINI_GLOSS, ANDYS_LIST, TRICKY_INITIALS, TEST_WORDS
 
 APP_TITLE = "Cantonese (HKCanCor) – Five tiles with Meanings"
 CJK_RE = re.compile(u"[\u4E00-\u9FFF]+")
@@ -1043,7 +1070,7 @@ class App(tk.Tk):
         self._last_mode_label = "Minimal Common"
         self.mode_combo = ttk.Combobox(
             ctrl,
-            values=["Andy's List", "Minimal Common", "Tricky Initials", DIVIDER_LABEL, "Characters", "Words", "Both"],
+            values=["Andy's List", "Minimal Common", "Tricky Initials", "Test Words", DIVIDER_LABEL, "Characters", "Words", "Both"],
             textvariable=self.mode_var,
             state="readonly",
             width=14,
@@ -1099,10 +1126,12 @@ class App(tk.Tk):
 
 
         # --- Static UI under the control row ---
-        # Large Jyutping answer line (24pt)
+        # Large Jyutping answer line (24pt), now as a frame for colored segments
         self.status_var = tk.StringVar(value="Jyutping: ")
-        self.jp_answer = ttk.Label(ctrl, text="", font=("Helvetica", 24, "bold"))
-        self.jp_answer.grid(row=1, column=0, columnspan=5, pady=(6, 0), sticky="w")
+        self.jp_answer_frame = tk.Frame(ctrl, bg=self.cget("bg"))
+        self.jp_answer_frame.grid(row=1, column=0, columnspan=5, pady=(6, 0), sticky="w")
+        self.jp_answer_frame.grid_propagate(False)
+        self.jp_answer_frame.configure(height=60)
         # Play-mode message aligned with the Play sound button (now at column 5)
         # Instructions textbox aligned with the Play sound button (column 5)
         self.instructions_box = tk.Text(
@@ -1122,8 +1151,9 @@ class App(tk.Tk):
         self.legend_frame.grid(row=2, column=0, columnspan=10, sticky="w", pady=(6, 0))
         ttk.Label(self.legend_frame, text="Tone key:").grid(row=0, column=0, padx=(0, 8))
         for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"], start=1):
-            swatch = tk.Label(self.legend_frame, text=f"{tone}", width=4, relief="solid", bd=1)
-            swatch.configure(bg=TONE_COLOURS.get(tone, ""))
+            fg = TONE_KEY_TEXT_COLOURS.get(str(tone), "#000000")
+            bg = TONE_COLOURS.get(str(tone))
+            swatch = tk.Label(self.legend_frame, text=f"{tone}", width=4, relief="solid", bd=1, bg=bg, fg=fg)
             swatch.grid(row=0, column=idx, padx=4, pady=2)
             try:
                 ToolTip(swatch, TONE_DESCRIPTIONS.get(tone, ""))
@@ -1162,6 +1192,11 @@ class App(tk.Tk):
                 relief="solid"
             )
             lbl.pack(fill="both", expand=True, padx=2, pady=2)
+
+            try:
+                lbl.configure(bg=LIGHT_TILE_BG)
+            except Exception:
+                pass
 
             tip = ToolTip(lbl, "")
             self.label_tips[lbl] = tip
@@ -1339,6 +1374,7 @@ class App(tk.Tk):
             "Minimal Common": "very_common",
             "Andy's List": "andys",
             "Tricky Initials": "tricky",
+            "Test Words": "test_words",
             "Characters": "characters",
             "Words": "words",
             "Both": "both",
@@ -1357,15 +1393,17 @@ class App(tk.Tk):
     def _on_mode_change(self):
         """Handle mode dropdown changes: update labels/spinbox, rebuild pool, and shuffle."""
         mode = self._current_list_mode()
-        if mode in ("very_common", "andys", "tricky"):
+        if mode in ("very_common", "andys", "tricky", "test_words"):
             # Show total count and disable the Top spinbox for fixed dictionaries
             self.top_label.configure(text="Words:")
             if mode == "very_common":
                 total = len(MINI_GLOSS)
             elif mode == "andys":
                 total = len(ANDYS_LIST)
-            else:  # tricky
+            elif mode == "tricky":
                 total = len(TRICKY_INITIALS)
+            else:  # test_words
+                total = len(TEST_WORDS)
             self.topn_var.set(total)
             self.topn_spin.configure(state="disabled")
         else:
@@ -1462,6 +1500,8 @@ class App(tk.Tk):
                 self.pool = entries_from_gloss_dict(ANDYS_LIST)
             elif mode == "tricky":
                 self.pool = entries_from_gloss_dict(TRICKY_INITIALS)
+            elif mode == "test_words":
+                self.pool = entries_from_gloss_dict(TEST_WORDS)
             elif mode == "characters":
                 self.pool = get_top_char_entries(topn)
             elif mode == "both":
@@ -1501,8 +1541,12 @@ class App(tk.Tk):
         self.target_text = None
         self._set_play_label(False)
         self._wrong_this_round = set()
-        if hasattr(self, "jp_answer"):
-            self.jp_answer.configure(text="")
+        if hasattr(self, "jp_answer_frame"):
+            try:
+                for child in self.jp_answer_frame.winfo_children():
+                    child.destroy()
+            except Exception:
+                pass
         # Clear the Details box
         if hasattr(self, "details"):
             self.details.delete("1.0", tk.END)
@@ -1534,11 +1578,7 @@ class App(tk.Tk):
             except Exception:
                 pass
             lbl.configure(bd=1, relief="solid")
-            bg = colour_for_jyutping(e["jyutping"])
-            if bg:
-                lbl.configure(bg=bg)
-            else:
-                lbl.configure(bg=self.cget("bg"))
+            lbl.configure(bg=LIGHT_TILE_BG)
             # Sync overlay background and clear any previous mark
             try:
                 ov = self.overlays.get(lbl)
@@ -1675,13 +1715,16 @@ class App(tk.Tk):
 
             meanings = lookup_meaning_merged(text, self.cc_canto, self.cedict)
 
-            # Update big Jyutping answer (formatted per settings)
+            # Update big Jyutping answer with per-syllable tone colours
             try:
-                disp_jp = _format_jyutping_for_display(text, jp)
-                self.jp_answer.configure(text=disp_jp)
+                self._render_jyutping_colored(text, jp)
             except Exception:
+                # Fallback: plain text (very rare)
                 try:
-                    self.jp_answer.configure(text=jp)
+                    for child in self.jp_answer_frame.winfo_children():
+                        child.destroy()
+                    lbl = tk.Label(self.jp_answer_frame, text=_format_jyutping_for_display(text, jp), font=("Helvetica", 24, "bold"))
+                    lbl.pack(side="left")
                 except Exception:
                     pass
 
@@ -1696,17 +1739,14 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-            # Tone-based recolour (kept)
-            bg = colour_for_jyutping(jp)
-            if bg:
-                event.widget.configure(bg=bg)
-                # Keep the ✓/✗ overlay background in sync with the tile’s tone color
-                try:
-                    ov = self.overlays.get(event.widget)
-                    if ov is not None:
-                        ov.configure(bg=event.widget.cget("bg"))
-                except Exception:
-                    pass
+            # Set tile background to light neutral (no tone coloring)
+            try:
+                event.widget.configure(bg=LIGHT_TILE_BG)
+                ov = self.overlays.get(event.widget)
+                if ov is not None:
+                    ov.configure(bg=event.widget.cget("bg"))
+            except Exception:
+                pass
 
             # Highlight the clicked tile (no dialog)
             self._select_label(event.widget)
@@ -1762,6 +1802,76 @@ class App(tk.Tk):
                 self.details.insert(tk.END, f"{title}:\n{msg}\n")
 
         return handler
+
+    def _render_jyutping_colored(self, text: str, fallback_jp: str):
+        """
+        Render Jyutping with per-syllable colors according to TONE_COLOURS.
+        Honors JYUTPING_STYLE ('learner' | 'strict' | 'strict_with_word_boundaries').
+        """
+        # Clear previous content
+        try:
+            for child in self.jp_answer_frame.winfo_children():
+                child.destroy()
+        except Exception:
+            pass
+        style = (JYUTPING_STYLE or "learner").strip().lower()
+        marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
+        # Build segments (words) first
+        segments = None
+        try:
+            if hasattr(pycantonese, "word_segment"):
+                segments = pycantonese.word_segment(text)
+            elif hasattr(pycantonese, "segment"):
+                segments = pycantonese.segment(text)
+        except Exception:
+            segments = None
+        words = []
+        if isinstance(segments, (list, tuple)) and segments:
+            word_list = segments
+        else:
+            word_list = [text] if text else []
+        # For each word, collect syllables (strings like 'gwong2', 'bo3')
+        for w in word_list:
+            try:
+                jps = pycantonese.characters_to_jyutping(w) or []
+            except Exception:
+                jps = []
+            # Use robust Jyutping splitter
+            flat = []
+            for item in jps:
+                for syl in _safe_split_syllables(item):
+                    if syl:
+                        flat.append(syl)
+            if not flat and fallback_jp:
+                flat = [syl for syl in _safe_split_syllables(fallback_jp) if syl]
+            words.append(flat)
+        # Now render syllables according to style
+        big_font = ("Helvetica", 36, "bold")
+        def _add_text(txt, fg=None):
+            lbl = tk.Label(self.jp_answer_frame, text=txt, font=big_font, fg=fg, bg=self.cget("bg"))
+            lbl.pack(side="left")
+        for wi, syls in enumerate(words):
+            for si, syl in enumerate(syls):
+                # Determine tone color
+                tone = ""
+                for ch in reversed(syl):
+                    if ch in "123456":
+                        tone = ch
+                        break
+                fg = TONE_COLOURS.get(tone, None)
+                # Decide printable syllable chunk (keep the full syl as-is)
+                chunk = syl
+                _add_text(chunk, fg=fg)
+                # Add spacing inside word depending on style
+                if style == "learner" and si < len(syls) - 1:
+                    _add_text(" ")
+                # In strict styles, no spacing between syllables within word
+            # Word boundary
+            if wi < len(words) - 1:
+                if style == "strict_with_word_boundaries":
+                    _add_text(str(marker))
+                else:
+                    _add_text(" ")
 
     def _show_chances(self):
         """Show the standard chances message using current remaining_chances with correct pluralization."""

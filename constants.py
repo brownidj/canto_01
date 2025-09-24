@@ -13,12 +13,21 @@ TONE_DESCRIPTIONS = {
 # ---------------- Tone colors (pastel-ish) ----------------
 # Keep these hex values as you like; they’ll be used everywhere in the app.
 TONE_COLOURS = {
-    "1": "#9CC5D6",  # High level: slightly duller sky blue
-    "2": "#8AD6F0",  # High rising: marginally brighter blue
-    "3": "#C8A2C8",  # Mid level: lavender
-    "4": "#FFB347",  # Low falling: deep amber
-    "5": "#FFE1B2",  # Low rising: lighter peach
-    "6": "#E3C9A6",  # Low level: soft tan (slightly duller)
+    "1": "#2E89E6",  # High level: slightly darker blue for distinction from #33CCFF
+    "2": "#33CCFF",  # High rising: bright sky-blue/teal (improved visibility)
+    "3": "#9C27B0",  # Mid level: lighter purple (better visibility against light grey background)
+    "4": "#E65100",  # Low falling: vivid orange (more saturated/darker for contrast)
+    "5": "#FF8F00",  # Low rising: bright amber (more saturated for contrast)
+    "6": "#A1887F",  # Low level: lighter brown (lighter for better contrast)
+}
+
+TONE_KEY_TEXT_COLOURS = {
+    "1": "#FFFFFF",
+    "2": "#FFFFFF",
+    "3": "#FFFFFF",
+    "4": "#FFFFFF",
+    "5": "#FFFFFF",
+    "6": "#FFFFFF",
 }
 
 # ---------------- “Both” mode ratio ----------------
