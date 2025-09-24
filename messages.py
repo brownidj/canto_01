@@ -10,3 +10,5 @@ RESULT_MESSAGES = {
     "success": "Congratulations! You recognised the sound.",
     "fail": "Commiserations. You didn't match the sound.",
 }
+
+SHUFFLE_MESSAGE = "Click Shuffle to change the tiles"

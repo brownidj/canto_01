@@ -11,8 +11,15 @@ import tkinter as tk
 import warnings
 from tkinter import ttk, messagebox, scrolledtext
 
-from constants import BOTH_CHAR_RATIO
-from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES
+from constants import (BOTH_CHAR_RATIO,
+                       TONE_DESCRIPTIONS,
+                       TONE_COLOURS,
+                       TOOLTIP_DELAY,
+                       PLAY_TOOLTIP,
+                       PLAYMODE_TOOLTIP,
+                       MODE_TOOLTIP,
+                       TOPN_TOOLTIP)
+from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
 try:
@@ -63,8 +70,7 @@ import pycantonese
 
 from dictionaries import MINI_GLOSS, ANDYS_LIST, TRICKY_INITIALS
 
-# CAPP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
-APP_TITLE = "Cantonese (HKCanCor) – 1×5 with Meanings"
+APP_TITLE = "Cantonese (HKCanCor) – Five tiles with Meanings"
 CJK_RE = re.compile(u"[\u4E00-\u9FFF]+")
 DICT_FILENAME = os.path.join("assets", "cedict_ts.u8")  # CC-CEDICT in assets/
 CC_CANTO_FILENAME = os.path.join("assets", "cc_canto.u8")  # CC-Canto in assets/
@@ -643,23 +649,78 @@ class ToolTip(object):
         self.widget = widget
         self.text = text
         self.tipwindow = None
-        self.widget.bind("<Enter>", self.show)
-        self.widget.bind("<Leave>", self.hide)
-        # Add these two lines:
-        self.widget.bind("<FocusIn>", self.show)
-        self.widget.bind("<FocusOut>", self.hide)
+        self._after_id = None
+        self.widget.bind("<Enter>", self._schedule_show)
+        self.widget.bind("<Leave>", self._cancel_scheduled_show)
+        self.widget.bind("<FocusIn>", self._schedule_show)
+        self.widget.bind("<FocusOut>", self._cancel_scheduled_show)
+
+    # NEW: works for both ttk and classic Tk widgets
+    def _is_disabled(self) -> bool:
+        try:
+            # ttk widgets: prefer instate()
+            if hasattr(self.widget, "instate"):
+                return self.widget.instate(("disabled",))
+        except Exception:
+            pass
+        try:
+            # classic Tk widgets
+            return str(self.widget.cget("state")).lower() == "disabled"
+        except Exception:
+            return False
+
+    def _schedule_show(self, event=None):
+        # 🚫 Do not schedule if disabled
+        if self._is_disabled():
+            return
+        self._cancel_scheduled_show()
+        self._after_id = self.widget.after(TOOLTIP_DELAY, lambda: self.show(event))
+
+    def _cancel_scheduled_show(self, event=None):
+        if self._after_id is not None:
+            try:
+                self.widget.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
+        self.hide()
 
     def show(self, event=None):
-        if self.tipwindow or not self.text:
+        if not self.text:
             return
+        # Extra safety: don't show if disabled (covers race conditions)
+        if self._is_disabled():
+            return
+        # If the widget isn't viewable yet (e.g., right after startup), try again shortly
         try:
-            x = self.widget.winfo_rootx() + 10
-            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+            if not self.widget.winfo_viewable():
+                self.widget.after(150, lambda: self.show(event))
+                return
         except Exception:
-            return
+            pass
+        # If already showing, destroy and recreate for consistent behavior
+        if self.tipwindow:
+            try:
+                self.tipwindow.destroy()
+            except Exception:
+                pass
+            self.tipwindow = None
+        # Compute position; prefer event root coords if available, else widget geometry, else pointer
+        try:
+            if event is not None and hasattr(event, 'x_root') and hasattr(event, 'y_root'):
+                x = event.x_root + 10
+                y = event.y_root + 10
+            else:
+                x = self.widget.winfo_rootx() + 10
+                y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        except Exception:
+            try:
+                x = self.widget.winfo_pointerx() + 10
+                y = self.widget.winfo_pointery() + 10
+            except Exception:
+                return
         self.tipwindow = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
-        # Add this so it shows above other windows on macOS:
         try:
             tw.wm_attributes("-topmost", True)
         except Exception:
@@ -675,28 +736,6 @@ class ToolTip(object):
         if tw is not None:
             tw.destroy()
             self.tipwindow = None
-
-
-TONE_DESCRIPTIONS = {
-    "1": "High level",
-    "2": "High rising",
-    "3": "Mid level",
-    "4": "Low falling",
-    "5": "Low rising",
-    "6": "Low level",
-}
-
-# --------------------------- Tone Colouring --------------------------- #
-
-TONE_COLOURS = {
-    "1": "#9CC5D6",  # High level: slightly duller sky blue
-    "2": "#8AD6F0",  # High rising: marginally brighter blue
-    "3": "#C8A2C8",  # Mid level: lavender
-    "4": "#FFB347",  # Low falling: deep amber
-    "5": "#FFE1B2",  # Low rising: lighter peach
-    "6": "#E3C9A6",  # Low level: soft tan (slightly duller)
-}
-
 
 def tone_from_jyutping(jp):
     """
@@ -915,6 +954,7 @@ class App(tk.Tk):
             width=14,
         )
         self.mode_combo.grid(row=0, column=0, padx=(0, 10))
+        ToolTip(self.mode_combo, MODE_TOOLTIP)
         self.mode_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
 
         self.top_label = ttk.Label(ctrl, text="Words:")
@@ -924,18 +964,20 @@ class App(tk.Tk):
         self.topn_spin = ttk.Spinbox(ctrl, from_=20, to=5000, increment=10, textvariable=self.topn_var, width=5,
                                      command=self.rebuild_pool)
         self.topn_spin.grid(row=0, column=3)
+        ToolTip(self.topn_spin, TOPN_TOOLTIP)
         # Initialize for Minimal Common: show total and disable spin
         self.topn_var.set(len(ANDYS_LIST))
         self.topn_spin.configure(state="disabled")
 
         self.shuffle_btn = ttk.Button(ctrl, text="Shuffle", command=self.shuffle)
         self.shuffle_btn.grid(row=0, column=4, padx=(10, 0))
+        ToolTip(self.shuffle_btn, SHUFFLE_MESSAGE)
 
         # Play mode: Listen & Choose (default) vs Hear Pronunciation
         self.play_mode_var = tk.StringVar(value="Hear Pronunciation")
         self.play_mode_combo = ttk.Combobox(
             ctrl,
-            values=["Listen & Choose", "Hear Pronunciation"],
+            values=["Hear Pronunciation", "Listen & Choose"],
             state="readonly",
             width=24,
             textvariable=self.play_mode_var,
@@ -954,8 +996,10 @@ class App(tk.Tk):
 
         self.make_sound_btn = ttk.Button(self.play_container, text="Play sound", width=10, takefocus=1, command=self._on_make_sound)
         self.make_sound_btn.pack(fill="both", expand=True)
+        ToolTip(self.make_sound_btn, PLAY_TOOLTIP)
 
         self.play_mode_combo.grid(row=0, column=6, padx=(8, 0))
+        ToolTip(self.play_mode_combo, PLAYMODE_TOOLTIP)
         self.play_mode_combo.bind("<<ComboboxSelected>>", self._on_play_mode_change)
 
 
@@ -1230,42 +1274,69 @@ class App(tk.Tk):
         self.shuffle()
 
     def _on_make_sound(self):
-        # Clear overlays at the start of a new round
-        self._clear_overlays()
-        """Play the pronunciation of one randomly chosen tile from the current five."""
+        """Play the pronunciation for the current round.
+        - In Listen & Choose: replay the existing target if the round is active; otherwise start a new round and pick a new target.
+        - In Hear Pronunciation: button is disabled anyway.
+        """
         try:
-            # Ensure we have a set of tiles to choose from
+            # Ensure we have tiles to choose from
             if not self.current_five:
                 self.shuffle()
+
             choices = [e for e in (self.current_five or []) if e and e.get("text")]
             if not choices:
                 messagebox.showinfo("Info", "No tiles available. Try Shuffle first.")
                 return
-            chosen = random.choice(choices)
-            text = chosen.get("text", "")
-            if not text:
-                messagebox.showinfo("Info", "No valid selection to play.")
-                return
-            # Remember the target text for Listen & Choose correctness check
-            self.target_text = text
-            speak_text_async(
-                text,
-                voice="Sin-ji",
-                rate=TTS_RATE,
-                enabled=SPEAK_ON_CLICK,
-            )
-            # Allow selection for this round in Listen & Choose mode
-            self.has_played_for_round = True
-            # --- Reset chances for a new round in Listen & Choose ---
-            try:
-                mode = (self.play_mode_var.get() or "").strip().lower()
-                if mode == "listen & choose":
+
+            mode = (self.play_mode_var.get() or "").strip().lower()
+
+            # Default: no text chosen yet
+            text_to_play = None
+
+            if mode == "listen & choose":
+                # If a round is already active and we have a target, just replay it
+                if self.has_played_for_round and self.target_text:
+                    text_to_play = self.target_text
+                else:
+                    # Start a NEW round: clear overlays, pick a NEW target
+                    self._clear_overlays()
+                    chosen = random.choice(choices)
+                    text_to_play = chosen.get("text", "")
+                    if not text_to_play:
+                        messagebox.showinfo("Info", "No valid selection to play.")
+                        return
+
+                    # Remember the new target and reset round state
+                    self.target_text = text_to_play
                     self.remaining_chances = NUMBER_OF_CHANCES
                     self.first_selection_message_shown = False
-                if mode == "listen & choose" and self.mode_msg_visible:
-                    self._hide_instructions_message()
-            except Exception:
-                pass
+                    self.has_played_for_round = True
+
+                    # Hide the mode hint (we’re now in a round)
+                    if self.mode_msg_visible:
+                        self._hide_instructions_message()
+            else:
+                # Hear Pronunciation mode keeps Play disabled; no-op guard
+                try:
+                    if str(self.make_sound_btn.cget("state")).lower() == "disabled":
+                        return
+                except Exception:
+                    pass
+                # If ever enabled in future, just pick any choice to play
+                chosen = random.choice(choices)
+                text_to_play = chosen.get("text", "")
+
+            # Speak (non-blocking)
+            if text_to_play:
+                speak_text_async(
+                    text_to_play,
+                    voice="Sin-ji",
+                    rate=TTS_RATE,
+                    enabled=SPEAK_ON_CLICK,
+                )
+            else:
+                messagebox.showinfo("Info", "No valid selection to play.")
+                return
         except Exception as e:
             messagebox.showerror("Error", f"Could not play sound: {e}")
 
@@ -1523,7 +1594,7 @@ class App(tk.Tk):
 
             # Directly append explanation for tricky initials after meanings block if enabled
             if TRICKY_INITIAL_EXPLANATIONS and ini in {"z", "c", "j", "ng"}:
-                self.details.insert(tk.END, "---\n")
+                self.details.insert(tk.END, "----------- Tricky syllable initial - scroll down if necessary\n")
                 explanations = {
                     "z": (
                         "Jyutping z",
