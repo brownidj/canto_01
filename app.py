@@ -19,7 +19,7 @@ from constants import (BOTH_CHAR_RATIO,
                        PLAYMODE_TOOLTIP,
                        MODE_TOOLTIP,
                        TOPN_TOOLTIP)
-from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE
+from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE, DUPLICATE_WARNING
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
 try:
@@ -28,7 +28,7 @@ except Exception:
     SPEAK_ON_CLICK = True  # default: speak when tile is clicked
     TTS_RATE = 180  # default macOS say rate (wpm)
 
-# --- Import NUMBER_OF_CHANCES from settings.py, with a safe default ---
+ # --- Import NUMBER_OF_CHANCES from settings.py, with a safe default ---
 try:
     from settings import NUMBER_OF_CHANCES
 except Exception:
@@ -39,6 +39,12 @@ try:
     from settings import TRICKY_INITIAL_EXPLANATIONS
 except Exception:
     TRICKY_INITIAL_EXPLANATIONS = False
+
+# --- Import DEBUG from settings.py, with a safe default ---
+try:
+    from settings import DEBUG
+except Exception:
+    DEBUG = False
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
@@ -927,6 +933,8 @@ class App(tk.Tk):
         self.first_selection_message_shown = False
         # Track whether the play-mode hint is currently visible
         self.mode_msg_visible = False
+        # Track wrong attempts in current Listen & Choose round
+        self._wrong_this_round = set()
 
         # Dictionary load: direct paths (CC-Canto is guaranteed in assets/cc_canto.u8)
         self.cc_canto = load_cc_canto_dict(CC_CANTO_FILENAME)
@@ -1117,6 +1125,14 @@ class App(tk.Tk):
         try:
             if (self.play_mode_var.get() or "").strip().lower() == "listen & choose":
                 self.after(80, lambda: self.make_sound_btn.focus_set())
+                self._set_play_label(False)
+        except Exception:
+            pass
+
+    def _dbg(self, *args):
+        try:
+            if DEBUG:
+                print("[DBG]", *args)
         except Exception:
             pass
 
@@ -1176,6 +1192,7 @@ class App(tk.Tk):
                     text = PLAY_MODE_MESSAGES["play_mode"][0]
                 else:
                     text = PLAY_MODE_MESSAGES["play_mode"][1]
+            self._dbg("_show_instructions_message:", repr(text))
             self.instructions_box.configure(state="normal")
             self.instructions_box.delete("1.0", tk.END)
             self.instructions_box.insert(tk.END, text)
@@ -1297,11 +1314,13 @@ class App(tk.Tk):
                 # If a round is already active and we have a target, just replay it
                 if self.has_played_for_round and self.target_text:
                     text_to_play = self.target_text
+                    self._dbg("replay target:", self.target_text)
                 else:
                     # Start a NEW round: clear overlays, pick a NEW target
                     self._clear_overlays()
                     chosen = random.choice(choices)
                     text_to_play = chosen.get("text", "")
+                    self._dbg("new round target:", text_to_play)
                     if not text_to_play:
                         messagebox.showinfo("Info", "No valid selection to play.")
                         return
@@ -1311,10 +1330,12 @@ class App(tk.Tk):
                     self.remaining_chances = NUMBER_OF_CHANCES
                     self.first_selection_message_shown = False
                     self.has_played_for_round = True
-
+                    # Track wrong attempts in current Listen & Choose round
+                    self._wrong_this_round = set()
                     # Hide the mode hint (we’re now in a round)
                     if self.mode_msg_visible:
                         self._hide_instructions_message()
+                    self._set_play_label(True)
             else:
                 # Hear Pronunciation mode keeps Play disabled; no-op guard
                 try:
@@ -1377,12 +1398,21 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def _set_play_label(self, again: bool):
+        """Set Play button label to 'Play again' when again=True, else 'Play sound'."""
+        try:
+            self.make_sound_btn.configure(text=("Play again" if again else "Play sound"))
+        except Exception:
+            pass
+
     def shuffle(self):
         # Clear any previous selection highlight
         self._clear_selection()
         self._clear_overlays()
         # Reset target
         self.target_text = None
+        self._set_play_label(False)
+        self._wrong_this_round = set()
         if hasattr(self, "jp_answer"):
             self.jp_answer.configure(text="")
         # Clear the Details box
@@ -1522,15 +1552,32 @@ class App(tk.Tk):
                         # Correct choice: end round
                         self._show_instructions_message(RESULT_MESSAGES["success"])
                         self.has_played_for_round = False
+                        self._set_play_label(False)
+                        self._wrong_this_round.clear()
+                        self._dbg("correct selection, round end")
                     else:
                         # Wrong choice: decrement chances and either continue or end
-                        try:
-                            self.remaining_chances = int(self.remaining_chances) - 1
-                        except Exception:
-                            self.remaining_chances -= 1
+                        if text in self._wrong_this_round:
+                            # Duplicate wrong: do NOT decrement; show duplicate notice BEFORE chances line and stop.
+                            n = max(0, int(self.remaining_chances))
+                            plural = "chance" if n == 1 else "chances"
+                            msg = f"{DUPLICATE_WARNING}\nYou have {n} more {plural}"
+                            self._dbg("duplicate wrong clicked:", text, "remaining:", n)
+                            self._show_instructions_message(msg)
+                            return
+                        else:
+                            self._wrong_this_round.add(text)
+                            try:
+                                self.remaining_chances = int(self.remaining_chances) - 1
+                            except Exception:
+                                self.remaining_chances -= 1
+                            self._dbg("new wrong clicked:", text, "remaining now:", self.remaining_chances)
                         if self.remaining_chances <= 0:
                             self._show_instructions_message(RESULT_MESSAGES["fail"])
                             self.has_played_for_round = False
+                            self._set_play_label(False)
+                            self._wrong_this_round.clear()
+                            self._dbg("out of chances, round end")
                         else:
                             n = self.remaining_chances
                             plural = "chance" if n == 1 else "chances"
