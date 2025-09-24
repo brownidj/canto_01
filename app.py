@@ -1556,7 +1556,7 @@ class App(tk.Tk):
                         self._wrong_this_round.clear()
                         self._dbg("correct selection, round end")
                     else:
-                        # Wrong choice: decrement chances and either continue or end
+                        # Wrong choice made: decrement chances and either continue or end
                         if text in self._wrong_this_round:
                             # Duplicate wrong: do NOT decrement; show duplicate notice BEFORE chances line and stop.
                             n = max(0, int(self.remaining_chances))
