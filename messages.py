@@ -6,3 +6,7 @@ PLAY_MODE_MESSAGES = {
         "Select a character or word to hear how it is pronounced"
     ]
 }
+RESULT_MESSAGES = {
+    "success": "Congratulations! You recognised the sound.",
+    "fail": "Commiserations. You didn't match the sound.",
+}

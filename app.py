@@ -12,7 +12,7 @@ import warnings
 from tkinter import ttk, messagebox, scrolledtext
 
 from constants import BOTH_CHAR_RATIO
-from messages import PLAY_MODE_MESSAGES
+from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
 try:
@@ -20,6 +20,18 @@ try:
 except Exception:
     SPEAK_ON_CLICK = True  # default: speak when tile is clicked
     TTS_RATE = 180  # default macOS say rate (wpm)
+
+# --- Import NUMBER_OF_CHANCES from settings.py, with a safe default ---
+try:
+    from settings import NUMBER_OF_CHANCES
+except Exception:
+    NUMBER_OF_CHANCES = 3
+
+# --- Import tricky initials explanations flag from settings.py, with a safe default ---
+try:
+    from settings import TRICKY_INITIAL_EXPLANATIONS
+except Exception:
+    TRICKY_INITIAL_EXPLANATIONS = False
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
@@ -871,6 +883,9 @@ class App(tk.Tk):
         # Audio-first mode gating
         self.require_audio_before_selection = False
         self.has_played_for_round = True  # standard mode allows selection immediately
+        # Listen & Choose chances tracking
+        self.remaining_chances = NUMBER_OF_CHANCES
+        self.first_selection_message_shown = False
         # Track whether the play-mode hint is currently visible
         self.mode_msg_visible = False
 
@@ -917,7 +932,7 @@ class App(tk.Tk):
         self.shuffle_btn.grid(row=0, column=4, padx=(10, 0))
 
         # Play mode: Listen & Choose (default) vs Hear Pronunciation
-        self.play_mode_var = tk.StringVar(value="Listen & Choose")
+        self.play_mode_var = tk.StringVar(value="Hear Pronunciation")
         self.play_mode_combo = ttk.Combobox(
             ctrl,
             values=["Listen & Choose", "Hear Pronunciation"],
@@ -943,10 +958,6 @@ class App(tk.Tk):
         self.play_mode_combo.grid(row=0, column=6, padx=(8, 0))
         self.play_mode_combo.bind("<<ComboboxSelected>>", self._on_play_mode_change)
 
-        # Quick TTS test button (fixed Cantonese voice)
-        self.tts_test_btn = ttk.Button(ctrl, text="Test Voice", command=lambda: speak_text_async(
-            "廣東話你好", voice="Sin-ji", rate=TTS_RATE, enabled=SPEAK_ON_CLICK))
-        self.tts_test_btn.grid(row=0, column=7, padx=(8, 0))
 
         # --- Static UI under the control row ---
         # Large Jyutping answer line (24pt)
@@ -1038,7 +1049,7 @@ class App(tk.Tk):
         # Details box below the grid with a thin border and title "DETAILS"
         details_frame = tk.LabelFrame(self, text="DETAILS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
         details_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap="word")
+        self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap=tk.WORD)
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
         self._current_initial_for_help = ""
@@ -1219,6 +1230,8 @@ class App(tk.Tk):
         self.shuffle()
 
     def _on_make_sound(self):
+        # Clear overlays at the start of a new round
+        self._clear_overlays()
         """Play the pronunciation of one randomly chosen tile from the current five."""
         try:
             # Ensure we have a set of tiles to choose from
@@ -1243,15 +1256,12 @@ class App(tk.Tk):
             )
             # Allow selection for this round in Listen & Choose mode
             self.has_played_for_round = True
-            # --- Custom logic: print NUMBER_OF_CHANCES if mode is Listen & Choose ---
+            # --- Reset chances for a new round in Listen & Choose ---
             try:
                 mode = (self.play_mode_var.get() or "").strip().lower()
                 if mode == "listen & choose":
-                    try:
-                        from settings import NUMBER_OF_CHANCES
-                        print("NUMBER_OF_CHANCES:", NUMBER_OF_CHANCES)
-                    except Exception:
-                        pass
+                    self.remaining_chances = NUMBER_OF_CHANCES
+                    self.first_selection_message_shown = False
                 if mode == "listen & choose" and self.mode_msg_visible:
                     self._hide_instructions_message()
             except Exception:
@@ -1288,22 +1298,32 @@ class App(tk.Tk):
             self.pool = []
             return
 
-    def shuffle(self):
-        # Clear any previous selection highlight
-        self._clear_selection()
-        # Clear all overlay marks
+    def _clear_overlays(self):
+        # Clear all overlay marks (✓/✗) from tiles.#
         try:
             for _lbl, _ov in self.overlays.items():
                 _ov.configure(text="")
         except Exception:
             pass
+
+    def shuffle(self):
+        # Clear any previous selection highlight
+        self._clear_selection()
+        self._clear_overlays()
         # Reset target
         self.target_text = None
         if hasattr(self, "jp_answer"):
             self.jp_answer.configure(text="")
-            # Clear the Details box
+        # Clear the Details box
         if hasattr(self, "details"):
             self.details.delete("1.0", tk.END)
+            # Clear RESULT_MESSAGES in Listen & Choose mode
+            try:
+                mode = (self.play_mode_var.get() or "").strip().lower()
+                if mode == "listen & choose":
+                    self.details.delete("1.0", tk.END)
+            except Exception:
+                pass
         # Reset audio-first gate each shuffle
         if self.require_audio_before_selection:
             self.has_played_for_round = False
@@ -1386,13 +1406,13 @@ class App(tk.Tk):
             if self.require_audio_before_selection and not self.has_played_for_round:
                 messagebox.showinfo("Recognise pronunciation", "Click ‘Play’ before selecting a tile.")
                 return
-            # In Hear Pronunciation mode, hide the hint as soon as a tile is selected
-            try:
-                mode = (self.play_mode_var.get() or "").strip().lower()
-                if mode == "hear pronunciation" and self.mode_msg_visible:
-                    self._hide_instructions_message()
-            except Exception:
-                pass
+            # # In Hear Pronunciation mode, hide the hint as soon as a tile is selected
+            # try:
+            #     mode = (self.play_mode_var.get() or "").strip().lower()
+            #     if mode == "hear pronunciation" and self.mode_msg_visible:
+            #         self._hide_instructions_message()
+            # except Exception:
+            #     pass
             text = entry["text"]
             jp = _norm_jyut(entry["jyutping"])  # initial value from pool
             # For single characters, recompute directly to avoid any misalignment
@@ -1406,25 +1426,44 @@ class App(tk.Tk):
                 except Exception:
                     pass
 
-            # Clear previous overlay marks
-            # (Persistence: do NOT clear overlays here, so previous ticks/crosses remain visible)
-            # try:
-            #     for _lbl, _ov in self.overlays.items():
-            #         _ov.configure(text="")
-            # except Exception:
-            #     pass
-
-            # In Listen & Choose mode, show tick/cross depending on correctness (only after Play)
+            # --- Listen & Choose Option B: chances logic ---
             try:
                 play_mode = (self.play_mode_var.get() or "").strip().lower()
                 if play_mode == "listen & choose" and self.has_played_for_round:
+                    # On the first selection of the round, show the full chances counter from settings
+                    if not getattr(self, "first_selection_message_shown", False):
+                        n = max(0, int(self.remaining_chances))
+                        plural = "chance" if n == 1 else "chances"
+                        self._show_instructions_message(f"You have {n} more {plural}")
+                        self.first_selection_message_shown = True
+
+                    # Overlay ✓ or ✗ on this tile
                     ov = self.overlays.get(event.widget)
                     if ov is not None:
                         if getattr(self, "target_text", None) and text == self.target_text:
-                            ov.configure(text="✓", fg="#2e7d32")  # green tick
+                            ov.configure(text="✓", fg="#2e7d32")  # green
                         else:
-                            ov.configure(text="✗", fg="#c62828")  # red cross
+                            ov.configure(text="✗", fg="#c62828")  # red
                         ov.lift()
+
+                    # Evaluate correctness and end/continue the round
+                    if getattr(self, "target_text", None) and text == self.target_text:
+                        # Correct choice: end round
+                        self._show_instructions_message(RESULT_MESSAGES["success"])
+                        self.has_played_for_round = False
+                    else:
+                        # Wrong choice: decrement chances and either continue or end
+                        try:
+                            self.remaining_chances = int(self.remaining_chances) - 1
+                        except Exception:
+                            self.remaining_chances -= 1
+                        if self.remaining_chances <= 0:
+                            self._show_instructions_message(RESULT_MESSAGES["fail"])
+                            self.has_played_for_round = False
+                        else:
+                            n = self.remaining_chances
+                            plural = "chance" if n == 1 else "chances"
+                            self._show_instructions_message(f"You have {n} more {plural}")
             except Exception:
                 pass
 
@@ -1482,8 +1521,8 @@ class App(tk.Tk):
             is_single_char = isinstance(text, str) and len(text) == 1
             self._render_meanings_block(text, meanings, is_single_char, add_service_note, examples)
 
-            # Directly append explanation for tricky initials after meanings block
-            if ini in {"z", "c", "j", "ng"}:
+            # Directly append explanation for tricky initials after meanings block if enabled
+            if TRICKY_INITIAL_EXPLANATIONS and ini in {"z", "c", "j", "ng"}:
                 self.details.insert(tk.END, "---\n")
                 explanations = {
                     "z": (
