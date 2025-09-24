@@ -6,3 +6,7 @@ TTS_RATE = 180          # macOS 'say' words per minute (100–260 typical)
 NUMBER_OF_CHANCES = 3   # number of attempts to click a tile before giving up
 TRICKY_INITIAL_EXPLANATIONS = True
 DEBUG = True
+
+# settings.py (or equivalent)
+JYUTPING_STYLE = "strict"  # "learner" | "strict" | "strict_with_word_boundaries"
+JYUTPING_WORD_BOUNDARY_MARKER = " · "

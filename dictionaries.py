@@ -171,6 +171,14 @@ ANDYS_LIST = {
     u"者": ["he", "she", "they"],
 }
 
+TEST_WORDS = {
+    u"廣播": ["broadcast"],
+    u"廣播站": ["broadcast station"],
+    u"廣播電台": ["broadcasting company"],
+    u"廣播新聞": ["news broadcast"],
+}
+
+
 def merge_andys_into_mini(mini: dict, andys: dict) -> dict:
     """Merge ANDYS_LIST into MINI_GLOSS in-place, skipping keys that already exist."""
     for k, v in andys.items():

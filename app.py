@@ -40,11 +40,19 @@ try:
 except Exception:
     TRICKY_INITIAL_EXPLANATIONS = False
 
+
 # --- Import DEBUG from settings.py, with a safe default ---
 try:
     from settings import DEBUG
 except Exception:
     DEBUG = False
+
+# --- Import Jyutping display formatting options from settings.py, with safe defaults ---
+try:
+    from settings import JYUTPING_STYLE, JYUTPING_WORD_BOUNDARY_MARKER
+except Exception:
+    JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
+    JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
@@ -532,6 +540,85 @@ def _norm_jyut(j):
                 return x
         return ""
     return str(j)
+
+# --- Jyutping display formatting helper ---
+def _format_jyutping_for_display(text: str, fallback_jp: str) -> str:
+    """
+    Format Jyutping according to settings:
+    - learner: syllables spaced; words separated by single space.
+    - strict: join syllables within each word; words separated by single space.
+    - strict_with_word_boundaries: join syllables within each word; words separated by a visible marker.
+    Uses pycantonese to obtain per-word Jyutping when possible; falls back to the provided jp string.
+    """
+    style = (JYUTPING_STYLE or "learner").strip().lower()
+    marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
+
+    # 1) Try to segment into lexicon words first, so "strict" can join within each segment
+    segments = None
+    try:
+        if hasattr(pycantonese, "word_segment"):
+            segments = pycantonese.word_segment(text)  # list of strings
+        elif hasattr(pycantonese, "segment"):
+            segments = pycantonese.segment(text)  # fallback API name if present
+    except Exception:
+        segments = None
+
+    words = []
+    try:
+        if isinstance(segments, (list, tuple)) and len(segments) >= 2:
+            # Build per-segment jyutping strings (syllables spaced inside each segment)
+            tmp = []
+            for seg in segments:
+                try:
+                    seg_jps = pycantonese.characters_to_jyutping(seg) or []
+                except Exception:
+                    seg_jps = []
+                # normalize and keep syllables spaced inside this segment
+                norm = [_norm_jyut(j) for j in seg_jps if _norm_jyut(j)]
+                if norm:
+                    tmp.append(" ".join(norm))
+                else:
+                    # If no jyutping for a segment, try per-char as last resort
+                    try:
+                        per_char = pycantonese.characters_to_jyutping("".join(seg)) or []
+                        norm2 = [_norm_jyut(j) for j in per_char if _norm_jyut(j)]
+                        tmp.append(" ".join(norm2))
+                    except Exception:
+                        pass
+            words = [w for w in tmp if w]
+        if not words:
+            # 2) Fall back to pycantonese's own word-level jyutping for the whole text
+            try:
+                words = pycantonese.characters_to_jyutping(text) or []
+            except Exception:
+                words = []
+            words = [_norm_jyut(w) for w in words if _norm_jyut(w)]
+        if not words:
+            # 3) Final fallback: use the provided jp string as a single "word"
+            words = [_norm_jyut(fallback_jp)] if fallback_jp else []
+    except Exception:
+        # extremely defensive: ensure words is a list of strings
+        try:
+            words = [_norm_jyut(fallback_jp)] if fallback_jp else []
+        except Exception:
+            words = []
+
+    # Debug trace (optional)
+    try:
+        if DEBUG:
+            seg_count = (len(segments) if isinstance(segments, (list, tuple)) else "n/a")
+            print(f"[DBG] jpfmt: seg={seg_count} words={len(words)} style={style}")
+    except Exception:
+        pass
+
+    # Style application
+    if style == "strict":
+        # Remove spaces inside each word; keep a single space between segmented words
+        return " ".join(w.replace(" ", "") for w in words if w)
+    if style == "strict_with_word_boundaries":
+        return str(marker).join(w.replace(" ", "") for w in words if w)
+    # default learner: keep syllable spaces and a single space between words
+    return " ".join(words)
 
 
 # ---------------------- English Approximation ---------------------- #
@@ -1588,11 +1675,15 @@ class App(tk.Tk):
 
             meanings = lookup_meaning_merged(text, self.cc_canto, self.cedict)
 
-            # Update big Jyutping answer
+            # Update big Jyutping answer (formatted per settings)
             try:
-                self.jp_answer.configure(text=jp)
+                disp_jp = _format_jyutping_for_display(text, jp)
+                self.jp_answer.configure(text=disp_jp)
             except Exception:
-                pass
+                try:
+                    self.jp_answer.configure(text=jp)
+                except Exception:
+                    pass
 
             # Speak the clicked Hanzi/word in Cantonese (non-blocking) using settings.py config
             try:
