@@ -13,3 +13,5 @@ RESULT_MESSAGES = {
 
 SHUFFLE_MESSAGE = "Click Shuffle to change the tiles"
 DUPLICATE_WARNING = "You have already tried this one"
+MODE_LISTEN = "listen & choose"
+MODE_HEAR = "hear pronunciation"

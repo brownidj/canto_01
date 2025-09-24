@@ -1229,7 +1229,7 @@ class App(tk.Tk):
             try:
                 cont = self.label_to_container.get(self.selected_label)
                 if cont is not None:
-                    cont.configure(bg=self.cget("bg"))
+                    cont.configure(bg=self.cget("bg"), highlightthickness=0)
             except Exception:
                 pass
             self.selected_label = None
@@ -1240,7 +1240,8 @@ class App(tk.Tk):
         try:
             cont = self.label_to_container.get(lbl)
             if cont is not None:
-                cont.configure(bg="#000000")  # black border background
+                # Show a thin black outline without changing fill
+                cont.configure(highlightthickness=2, highlightbackground="#000000", bg=self.cget("bg"))
         except Exception:
             pass
         self.selected_label = lbl
@@ -1533,9 +1534,7 @@ class App(tk.Tk):
                 if play_mode == "listen & choose" and self.has_played_for_round:
                     # On the first selection of the round, show the full chances counter from settings
                     if not getattr(self, "first_selection_message_shown", False):
-                        n = max(0, int(self.remaining_chances))
-                        plural = "chance" if n == 1 else "chances"
-                        self._show_instructions_message(f"You have {n} more {plural}")
+                        self._show_chances()
                         self.first_selection_message_shown = True
 
                     # Overlay ✓ or ✗ on this tile
@@ -1579,9 +1578,7 @@ class App(tk.Tk):
                             self._wrong_this_round.clear()
                             self._dbg("out of chances, round end")
                         else:
-                            n = self.remaining_chances
-                            plural = "chance" if n == 1 else "chances"
-                            self._show_instructions_message(f"You have {n} more {plural}")
+                            self._show_chances()
             except Exception:
                 pass
 
@@ -1612,6 +1609,13 @@ class App(tk.Tk):
             bg = colour_for_jyutping(jp)
             if bg:
                 event.widget.configure(bg=bg)
+                # Keep the ✓/✗ overlay background in sync with the tile’s tone color
+                try:
+                    ov = self.overlays.get(event.widget)
+                    if ov is not None:
+                        ov.configure(bg=event.widget.cget("bg"))
+                except Exception:
+                    pass
 
             # Highlight the clicked tile (no dialog)
             self._select_label(event.widget)
@@ -1667,6 +1671,15 @@ class App(tk.Tk):
                 self.details.insert(tk.END, f"{title}:\n{msg}\n")
 
         return handler
+
+    def _show_chances(self):
+        """Show the standard chances message using current remaining_chances with correct pluralization."""
+        try:
+            n = max(0, int(self.remaining_chances))
+        except Exception:
+            n = self.remaining_chances
+        plural = "chance" if n == 1 else "chances"
+        self._show_instructions_message(f"You have {n} more {plural}")
 
 
 def main():
