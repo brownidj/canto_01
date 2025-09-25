@@ -19,13 +19,14 @@ from constants import (BOTH_CHAR_RATIO,
                        PLAY_TOOLTIP,
                        PLAYMODE_TOOLTIP,
                        MODE_TOOLTIP,
-                       TOPN_TOOLTIP)
+                       TOPN_TOOLTIP,)
+
 LIGHT_TILE_BG = "#F5F5F5"  # very light grey, tone-neutral
 from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE, DUPLICATE_WARNING
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
 try:
-    from settings import SPEAK_ON_CLICK, TTS_RATE
+    from settings import SPEAK_ON_CLICK, TTS_RATE, SWATCH_BASELINE_OFFSET_PX
 except Exception:
     SPEAK_ON_CLICK = True  # default: speak when tile is clicked
     TTS_RATE = 180  # default macOS say rate (wpm)
@@ -49,12 +50,19 @@ try:
 except Exception:
     DEBUG = False
 
+
 # --- Import Jyutping display formatting options from settings.py, with safe defaults ---
 try:
     from settings import JYUTPING_STYLE, JYUTPING_WORD_BOUNDARY_MARKER
 except Exception:
     JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
     JYUTPING_WORD_BOUNDARY_MARKER = " · "
+
+# --- Import swatch baseline offset (raise swatches) from settings.py, with safe default ---
+try:
+    from settings import SWATCH_BASELINE_OFFSET_PX
+except Exception:
+    SWATCH_BASELINE_OFFSET_PX = 8  # pixels to raise swatches from the bottom
 
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
@@ -1066,7 +1074,7 @@ class App(tk.Tk):
         ctrl = ttk.Frame(self, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
         # Make Jyutping answer (left) expand, Tone key (right) fixed
-        ctrl.grid_columnconfigure(0, weight=1)
+        ctrl.grid_columnconfigure(0, weight=0)
         ctrl.grid_columnconfigure(6, weight=1)
         ctrl.grid_columnconfigure(7, weight=0)
 
@@ -1143,22 +1151,25 @@ class App(tk.Tk):
         )
         self.instructions_box.grid(row=1, column=0, columnspan=8, padx=(0, 0), sticky="w")
 
-        # Jyutping answer frame (big 36pt), now in row 2, left, bottom-aligned
+        # Jyutping answer frame (big 36pt), now in row 2, left, bottom-aligned vertically
         self.status_var = tk.StringVar(value="Jyutping: ")
         self.jp_answer_frame = tk.Frame(ctrl, bg=self.cget("bg"))
-        self.jp_answer_frame.grid(row=2, column=0, columnspan=7, pady=(6, 0), sticky="s")
+        self.jp_answer_frame.grid(row=2, column=1, columnspan=7, padx=(30, 0), pady=(26, 0), sticky="sw")
         self.jp_answer_frame.grid_propagate(False)
         self.jp_answer_frame.configure(height=60)
 
-        # Tone legend bar, now on same row as Jyutping, bottom-aligned to right side
-        self.legend_frame = ttk.Frame(ctrl)
-        self.legend_frame.grid(row=2, column=7, sticky="se", pady=(6, 0))
-        ttk.Label(self.legend_frame, text="Tone key:").grid(row=0, column=0, padx=(0, 8))
-        for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"], start=1):
+        # Tone legend bar, now on same row as Jyutping, bottom-aligned vertically to left side
+        self.legend_frame = tk.Frame(ctrl)
+        self.legend_frame.grid(row=2, column=0, sticky="sw", pady=(6, 0))
+        try:
+            self.legend_frame.grid_propagate(True)
+        except Exception:
+            pass
+        for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"]):
             fg = TONE_KEY_TEXT_COLOURS.get(str(tone), "#000000")
             bg = TONE_COLOURS.get(str(tone))
-            swatch = tk.Label(self.legend_frame, text=f"{tone}", width=4, relief="solid", bd=1, bg=bg, fg=fg)
-            swatch.grid(row=0, column=idx, padx=4, pady=2)
+            swatch = tk.Label(self.legend_frame, text=f"{tone}", width=2, padx=10, relief="solid", bd=1, bg=bg, fg=fg)
+            swatch.grid(row=0, column=idx, padx=4, pady=(0, SWATCH_BASELINE_OFFSET_PX), sticky="s")
             try:
                 ToolTip(swatch, TONE_DESCRIPTIONS.get(tone, ""))
             except Exception:
@@ -1851,9 +1862,15 @@ class App(tk.Tk):
             words.append(flat)
         # Now render syllables according to style
         big_font = ("Helvetica", 36, "bold")
+
         def _add_text(txt, fg=None):
             lbl = tk.Label(self.jp_answer_frame, text=txt, font=big_font, fg=fg, bg=self.cget("bg"))
-            lbl.pack(side="left")
+            try:
+                offset = int(JYUTPING_BASELINE_OFFSET_PX)
+            except Exception:
+                offset = 8  # fallback
+            # Pushes the Jyutping text baseline lower in the frame
+            lbl.pack(side="left", pady=(offset, 0))
         for wi, syls in enumerate(words):
             for si, syl in enumerate(syls):
                 # Determine tone color

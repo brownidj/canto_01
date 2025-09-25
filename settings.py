@@ -8,5 +8,7 @@ TRICKY_INITIAL_EXPLANATIONS = True
 DEBUG = True
 
 # settings.py (or equivalent)
-JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
+JYUTPING_STYLE = "strict_with_word_boundaries"  # "learner" | "strict" | "strict_with_word_boundaries"
 JYUTPING_WORD_BOUNDARY_MARKER = " · "
+
+SWATCH_BASELINE_OFFSET_PX = 10  # try 6–14 until it visually matches your Jyutping baseline
