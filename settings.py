@@ -8,5 +8,5 @@ TRICKY_INITIAL_EXPLANATIONS = True
 DEBUG = True
 
 # settings.py (or equivalent)
-JYUTPING_STYLE = "strict"  # "learner" | "strict" | "strict_with_word_boundaries"
+JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
 JYUTPING_WORD_BOUNDARY_MARKER = " · "

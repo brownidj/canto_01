@@ -1065,6 +1065,10 @@ class App(tk.Tk):
         # Controls
         ctrl = ttk.Frame(self, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
+        # Make Jyutping answer (left) expand, Tone key (right) fixed
+        ctrl.grid_columnconfigure(0, weight=1)
+        ctrl.grid_columnconfigure(6, weight=1)
+        ctrl.grid_columnconfigure(7, weight=0)
 
         self.mode_var = tk.StringVar(value="Andy's List")
         self._last_mode_label = "Minimal Common"
@@ -1126,14 +1130,7 @@ class App(tk.Tk):
 
 
         # --- Static UI under the control row ---
-        # Large Jyutping answer line (24pt), now as a frame for colored segments
-        self.status_var = tk.StringVar(value="Jyutping: ")
-        self.jp_answer_frame = tk.Frame(ctrl, bg=self.cget("bg"))
-        self.jp_answer_frame.grid(row=1, column=0, columnspan=5, pady=(6, 0), sticky="w")
-        self.jp_answer_frame.grid_propagate(False)
-        self.jp_answer_frame.configure(height=60)
-        # Play-mode message aligned with the Play sound button (now at column 5)
-        # Instructions textbox aligned with the Play sound button (column 5)
+        # Instructions box moved above Jyutping/Tone key line, spanning full width (columns 0..7)
         self.instructions_box = tk.Text(
             ctrl,
             height=2,
@@ -1144,11 +1141,18 @@ class App(tk.Tk):
             relief="flat",
             bg=self.cget("bg")
         )
-        self.instructions_box.grid(row=1, column=5, columnspan=3, padx=(0, 0), sticky="w")
+        self.instructions_box.grid(row=1, column=0, columnspan=8, padx=(0, 0), sticky="w")
 
-        # Tone legend bar (inside controls, under the big Jyutping line)
+        # Jyutping answer frame (big 36pt), now in row 2, left, bottom-aligned
+        self.status_var = tk.StringVar(value="Jyutping: ")
+        self.jp_answer_frame = tk.Frame(ctrl, bg=self.cget("bg"))
+        self.jp_answer_frame.grid(row=2, column=0, columnspan=7, pady=(6, 0), sticky="s")
+        self.jp_answer_frame.grid_propagate(False)
+        self.jp_answer_frame.configure(height=60)
+
+        # Tone legend bar, now on same row as Jyutping, bottom-aligned to right side
         self.legend_frame = ttk.Frame(ctrl)
-        self.legend_frame.grid(row=2, column=0, columnspan=10, sticky="w", pady=(6, 0))
+        self.legend_frame.grid(row=2, column=7, sticky="se", pady=(6, 0))
         ttk.Label(self.legend_frame, text="Tone key:").grid(row=0, column=0, padx=(0, 8))
         for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"], start=1):
             fg = TONE_KEY_TEXT_COLOURS.get(str(tone), "#000000")
