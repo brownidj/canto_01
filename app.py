@@ -26,7 +26,7 @@ from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE, DUPLI
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
 try:
-    from settings import SPEAK_ON_CLICK, TTS_RATE, SWATCH_BASELINE_OFFSET_PX
+    from settings import SPEAK_ON_CLICK, TTS_RATE
 except Exception:
     SPEAK_ON_CLICK = True  # default: speak when tile is clicked
     TTS_RATE = 180  # default macOS say rate (wpm)
@@ -58,11 +58,6 @@ except Exception:
     JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
     JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
-# --- Import swatch baseline offset (raise swatches) from settings.py, with safe default ---
-try:
-    from settings import SWATCH_BASELINE_OFFSET_PX
-except Exception:
-    SWATCH_BASELINE_OFFSET_PX = 8  # pixels to raise swatches from the bottom
 
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
@@ -1073,10 +1068,16 @@ class App(tk.Tk):
         # Controls
         ctrl = ttk.Frame(self, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
+        # Lock the status row (row 2) height so it won't jump on first render
+        try:
+            ctrl.grid_rowconfigure(2, minsize=60)
+        except Exception:
+            pass
         # Make Jyutping answer (left) expand, Tone key (right) fixed
         ctrl.grid_columnconfigure(0, weight=0)
         ctrl.grid_columnconfigure(6, weight=1)
         ctrl.grid_columnconfigure(7, weight=0)
+        ctrl.grid_columnconfigure(1, weight=1)
 
         self.mode_var = tk.StringVar(value="Andy's List")
         self._last_mode_label = "Minimal Common"
@@ -1143,37 +1144,51 @@ class App(tk.Tk):
             ctrl,
             height=2,
             width=70,
-            font=("Helvetica", 16),
+            font=("Helvetica", 24),
             wrap="word",
             state="disabled",
             relief="flat",
             bg=self.cget("bg")
         )
-        self.instructions_box.grid(row=1, column=0, columnspan=8, padx=(0, 0), sticky="w")
+        self.instructions_box.grid(row=1, column=0, columnspan=8, padx=(0, 0), pady=(20, 0), sticky="ew")
+        # Centering tag for Text widget
+        try:
+            self.instructions_box.tag_configure("center", justify="center")
+        except Exception:
+            pass
 
         # Jyutping answer frame (big 36pt), now in row 2, left, bottom-aligned vertically
         self.status_var = tk.StringVar(value="Jyutping: ")
         self.jp_answer_frame = tk.Frame(ctrl, bg=self.cget("bg"))
-        self.jp_answer_frame.grid(row=2, column=1, columnspan=7, padx=(30, 0), pady=(26, 0), sticky="sw")
-        self.jp_answer_frame.grid_propagate(False)
+        self.jp_answer_frame.grid(
+            row=2, column=1, columnspan=7,
+            padx=(30, 0), pady=(0, 0),
+            sticky="sew"
+        )
+        self.jp_answer_frame.pack_propagate(False)  # prevent pack from resizing frame to its children
         self.jp_answer_frame.configure(height=60)
 
         # Tone legend bar, now on same row as Jyutping, bottom-aligned vertically to left side
         self.legend_frame = tk.Frame(ctrl)
         self.legend_frame.grid(row=2, column=0, sticky="sw", pady=(6, 0))
-        try:
-            self.legend_frame.grid_propagate(True)
-        except Exception:
-            pass
+        # Create swatches first so size requests are accurate
         for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"]):
             fg = TONE_KEY_TEXT_COLOURS.get(str(tone), "#000000")
             bg = TONE_COLOURS.get(str(tone))
             swatch = tk.Label(self.legend_frame, text=f"{tone}", width=2, padx=10, relief="solid", bd=1, bg=bg, fg=fg)
-            swatch.grid(row=0, column=idx, padx=4, pady=(0, SWATCH_BASELINE_OFFSET_PX), sticky="s")
+            swatch.grid(row=0, column=idx, padx=4, pady=(21, 15))
             try:
                 ToolTip(swatch, TONE_DESCRIPTIONS.get(tone, ""))
             except Exception:
                 pass
+        # Now realize and lock width/height, then disable propagation to prevent jumps
+        try:
+            self.legend_frame.update_idletasks()
+            needed_w = self.legend_frame.winfo_reqwidth()
+            self.legend_frame.configure(width=needed_w, height=60)
+            self.legend_frame.grid_propagate(False)
+        except Exception:
+            pass
 
         # Grid for 1 × 5 tiles
         self.tile_frame = ttk.Frame(self, padding=10)
@@ -1190,8 +1205,9 @@ class App(tk.Tk):
             cont = tk.Frame(
                 self.tile_frame,
                 bd=0,
-                highlightthickness=0,
-                bg=self.cget("bg")
+                highlightthickness=2,            # reserve space from the start
+                highlightbackground=self.cget("bg"),  # same as background → invisible initially
+                bg=self.cget("bg"),
             )
             cont.grid(row=0, column=col, padx=8, pady=8, sticky="nsew")
             self.tile_frame.grid_columnconfigure(col, weight=1, minsize=200)
@@ -1333,6 +1349,11 @@ class App(tk.Tk):
             self.instructions_box.configure(state="normal")
             self.instructions_box.delete("1.0", tk.END)
             self.instructions_box.insert(tk.END, text)
+            try:
+                # Apply the centering tag to all content
+                self.instructions_box.tag_add("center", "1.0", "end")
+            except Exception:
+                pass
             self.instructions_box.configure(state="disabled")
             self.mode_msg_visible = True
         except Exception:
@@ -1366,7 +1387,7 @@ class App(tk.Tk):
             try:
                 cont = self.label_to_container.get(self.selected_label)
                 if cont is not None:
-                    cont.configure(bg=self.cget("bg"), highlightthickness=0)
+                    cont.configure(bg=self.cget("bg"), highlightbackground=self.cget("bg"))  # keep thickness, hide border
             except Exception:
                 pass
             self.selected_label = None
@@ -1377,8 +1398,8 @@ class App(tk.Tk):
         try:
             cont = self.label_to_container.get(lbl)
             if cont is not None:
-                # Show a thin black outline without changing fill
-                cont.configure(highlightthickness=2, highlightbackground="#000000", bg=self.cget("bg"))
+                # Border space already reserved; just change colour to reveal it
+                cont.configure(highlightbackground="#000000", bg=self.cget("bg"))
         except Exception:
             pass
         self.selected_label = lbl
@@ -1589,7 +1610,7 @@ class App(tk.Tk):
             # Reset unselected visuals
             cont = self.containers[idx]
             try:
-                cont.configure(bg=self.cget("bg"))
+                cont.configure(bg=self.cget("bg"), highlightbackground=self.cget("bg"))
             except Exception:
                 pass
             lbl.configure(bd=1, relief="solid")
@@ -1865,12 +1886,8 @@ class App(tk.Tk):
 
         def _add_text(txt, fg=None):
             lbl = tk.Label(self.jp_answer_frame, text=txt, font=big_font, fg=fg, bg=self.cget("bg"))
-            try:
-                offset = int(JYUTPING_BASELINE_OFFSET_PX)
-            except Exception:
-                offset = 8  # fallback
-            # Pushes the Jyutping text baseline lower in the frame
-            lbl.pack(side="left", pady=(offset, 0))
+            # No vertical padding; keeps row height stable on first draw
+            lbl.pack(side="left")
         for wi, syls in enumerate(words):
             for si, syl in enumerate(syls):
                 # Determine tone color
@@ -1920,3 +1937,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+        # Remove any other references to SWATCH_BASELINE_OFFSET_PX
