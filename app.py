@@ -19,19 +19,19 @@ from constants import (BOTH_CHAR_RATIO,
                        PLAY_TOOLTIP,
                        PLAYMODE_TOOLTIP,
                        MODE_TOOLTIP,
-                       TOPN_TOOLTIP,)
+                       TOPN_TOOLTIP, )
 
 LIGHT_TILE_BG = "#F5F5F5"  # very light grey, tone-neutral
 from messages import PLAY_MODE_MESSAGES, RESULT_MESSAGES, SHUFFLE_MESSAGE, DUPLICATE_WARNING
 
 # --- Import TTS settings from settings.py, with safe defaults if missing ---
 try:
-    from settings import SPEAK_ON_CLICK, TTS_RATE
+    from settings import SPEAK_ON_CLICK, TTS_RATE_DEFAULT
 except Exception:
     SPEAK_ON_CLICK = True  # default: speak when tile is clicked
-    TTS_RATE = 180  # default macOS say rate (wpm)
+    TTS_RATE_DEFAULT = 180  # default macOS say rate (wpm)
 
- # --- Import NUMBER_OF_CHANCES from settings.py, with a safe default ---
+# --- Import NUMBER_OF_CHANCES from settings.py, with a safe default ---
 try:
     from settings import NUMBER_OF_CHANCES
 except Exception:
@@ -43,34 +43,13 @@ try:
 except Exception:
     TRICKY_INITIAL_EXPLANATIONS = False
 
-
 # --- Import DEBUG from settings.py, with a safe default ---
 try:
     from settings import DEBUG
 except Exception:
     DEBUG = False
 
-
-# --- Import default play mode from settings.py, with a safe default ---
-try:
-    from settings import PLAY_MODE_DEFAULT
-except Exception:
-    PLAY_MODE_DEFAULT = "Pronunciation"
-
-# --- Import default Jyutping mode from settings.py, with a safe fallback ---
-try:
-    from settings import JYUTPING_MODE_DEFAULT
-except Exception:
-    JYUTPING_MODE_DEFAULT = "Strict"
-
-
-# --- Import Jyutping display formatting options from settings.py, with safe defaults ---
-try:
-    from settings import JYUTPING_MODE_DEFAULT, JYUTPING_WORD_BOUNDARY_MARKER
-except Exception:
-    JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
-    JYUTPING_WORD_BOUNDARY_MARKER = " · "
-
+ # --- Import defaults from settings.py, with safe fallbacks ---
 try:
     from settings import PLAY_MODE_DEFAULT
 except Exception:
@@ -80,9 +59,21 @@ try:
 except Exception:
     JYUTPING_MODE_DEFAULT = "Strict"
 try:
-    from settings import TTS_RATE as TTS_RATE_DEFAULT
+    from settings import TTS_RATE_DEFAULT
 except Exception:
     TTS_RATE_DEFAULT = 180
+
+ # --- Import Jyutping display formatting options from settings.py, with safe defaults ---
+try:
+    from settings import JYUTPING_WORD_BOUNDARY_MARKER
+except Exception:
+    JYUTPING_WORD_BOUNDARY_MARKER = " · "
+# Default runtime style (used by formatting helpers); will be overridden by UI selection if present
+try:
+    JYUTPING_STYLE
+except NameError:
+    JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
+
 
 try:
     from preferences import Preferences, load_prefs, save_prefs
@@ -91,11 +82,6 @@ except Exception:
     load_config = lambda: {}
     save_config = lambda cfg: None
     print("WARNING: config_manager.py not found; using in-memory defaults only.")
-# --- Import default play mode from settings.py, with a safe default ---
-try:
-    from settings import PLAY_MODE_DEFAULT
-except Exception:
-    PLAY_MODE_DEFAULT = "Pronunciation"
 
 # Silence noisy UserWarnings emitted by wordseg/pkg_resources during import
 warnings.filterwarnings(
@@ -113,6 +99,7 @@ except Exception:
     _opencc_t2s = None
 # --- Robust Jyutping syllable splitter ---
 _JP_SYL_RE = re.compile(r"[a-z]+[1-6]", flags=re.IGNORECASE)
+
 
 def _safe_split_syllables(jp_chunk: str) -> list[str]:
     """
@@ -158,7 +145,6 @@ CC_CANTO_FILENAME = os.path.join("assets", "cc_canto.u8")  # CC-Canto in assets/
 
 # Divider label for mode dropdown
 DIVIDER_LABEL = "──────────"
-
 
 
 # ------------------------ Dictionary (CC-family) ------------------------ #
@@ -609,6 +595,7 @@ def _norm_jyut(j):
         return ""
     return str(j)
 
+
 # --- Jyutping display formatting helper ---
 def _format_jyutping_for_display(text: str, fallback_jp: str) -> str:
     """
@@ -898,6 +885,7 @@ class ToolTip(object):
             tw.destroy()
             self.tipwindow = None
 
+
 def tone_from_jyutping(jp):
     """
     Return the final tone digit for a Jyutping syllable string.
@@ -1145,7 +1133,8 @@ class App(tk.Tk):
         play_mode_container.grid(row=0, column=2, rowspan=1, sticky="nw", padx=(8, 0))  # Column 3, Row 1 only
 
         settings_container = ttk.Frame(ctrl)
-        settings_container.grid(row=0, column=3, columnspan=2, rowspan=1, sticky="ne", padx=(10, 0))  # Columns 4–5, Row 1
+        settings_container.grid(row=0, column=3, columnspan=2, rowspan=1, sticky="ne",
+                                padx=(10, 0))  # Columns 4–5, Row 1
         settings_container.grid_columnconfigure(0, weight=1)
 
         # --- Combo + Words/Top + Spinbox: all inside a frame for clean alignment ---
@@ -1154,7 +1143,8 @@ class App(tk.Tk):
 
         self.word_list_combo = ttk.Combobox(
             combo_frame,
-            values=["Andy's List", "Minimal Common", "Tricky Initials", "Test Words", DIVIDER_LABEL, "Characters", "Words", "Both"],
+            values=["Andy's List", "Minimal Common", "Tricky Initials", "Test Words", DIVIDER_LABEL, "Characters",
+                    "Words", "Both"],
             textvariable=self.word_list_var,
             state="readonly",
             width=14,
@@ -1167,7 +1157,8 @@ class App(tk.Tk):
         self.words_or_top_label.pack(side="left", padx=(10, 4))
         DEFAULT_TOPN = 300
         self.top_words_number = tk.IntVar(value=DEFAULT_TOPN)
-        self.top_spin_number = ttk.Spinbox(combo_frame, from_=20, to=5000, increment=10, textvariable=self.top_words_number, width=5,
+        self.top_spin_number = ttk.Spinbox(combo_frame, from_=20, to=5000, increment=10,
+                                           textvariable=self.top_words_number, width=5,
                                            command=self.rebuild_pool)
         self.top_spin_number.pack(side="left")
         ToolTip(self.top_spin_number, TOPN_TOOLTIP)
@@ -1203,9 +1194,21 @@ class App(tk.Tk):
         )
         self.play_container.grid(row=0, column=0, sticky="nw", padx=(0, 8))
 
-        self.make_sound_btn = ttk.Button(self.play_container, text="Play sound", width=10, takefocus=1, command=self._on_make_sound)
+        self.make_sound_btn = ttk.Button(self.play_container, text="Play sound", width=10, takefocus=1,
+                                         command=self._on_make_sound)
         self.make_sound_btn.pack(fill="both", expand=True)
         ToolTip(self.make_sound_btn, PLAY_TOOLTIP)
+
+        # Reserve a consistent footprint for the Play area so the window size doesn't jump
+        try:
+            self.play_container.update_idletasks()
+            _w = max(self.play_container.winfo_reqwidth(), self.make_sound_btn.winfo_reqwidth())
+            _h = max(self.play_container.winfo_reqheight(), self.make_sound_btn.winfo_reqheight())
+            # Add a small padding buffer to avoid theme rounding jitter
+            self.play_container.configure(width=_w + 6, height=_h + 4)
+            self.play_container.grid_propagate(False)
+        except Exception:
+            pass
 
         # --- Play mode radios: group inside play_mode_container ---
         # Determine initial play mode from config (if any) or fallback to settings default
@@ -1220,17 +1223,9 @@ class App(tk.Tk):
         initial_mode = last_mode or PLAY_MODE_DEFAULT
         self.play_mode_var = tk.StringVar(value=self.prefs.play_mode)
         self.jyutping_style_var = tk.StringVar(value=self.prefs.jyutping_mode)
-        self.rate_var = tk.IntVar(value=self.prefs.tts_rate)
 
-        # Hide Play button container if startup mode is Pronunciation
-        try:
-            mode = (self.play_mode_var.get() or "").strip().lower()
-            if mode != "listen & choose":
-                self.play_container.grid_remove()
-            else:
-                self.play_container.grid()
-        except Exception:
-            pass
+
+        # (Removed: Hide Play button container if startup mode is Pronunciation)
 
         self._sync_play_visibility()
         self._apply_mode_focus()
@@ -1274,31 +1269,11 @@ class App(tk.Tk):
         ToolTip(rb2, PLAYMODE_TOOLTIP)
         ToolTip(rb3, PLAYMODE_TOOLTIP)
 
-        # --- Column 4: Rate spinbox (100–260 in steps of 10) ---
-        col4_frame = tk.Frame(settings_container)
-        col4_frame.grid(row=0, column=1, sticky="e", padx=(10, 0))
-
-        self.rate_label = ttk.Label(col4_frame, text="TTS Rate:")
-        self.rate_label.pack(side="left", padx=(0, 4))
-
-        try:
-            default_rate = int(TTS_RATE)
-        except Exception:
-            default_rate = 180
-
-        self.rate_var = tk.IntVar(value=default_rate)
-        self.rate_spin = ttk.Spinbox(
-            col4_frame,
-            from_=100,
-            to=260,
-            increment=10,
-            textvariable=self.rate_var,
-            width=5
-        )
-        self.rate_spin.pack(side="left")
+        # (TTS Rate spinbox UI removed)
 
         # --- Jyutping display mode radios (Learner / Strict / Borders) ---
-        jyut_frame = tk.LabelFrame(settings_container, text="Jyutping", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
+        jyut_frame = tk.LabelFrame(settings_container, text="Jyutping", bd=1, relief="solid", labelanchor="nw", padx=6,
+                                   pady=6)
         jyut_frame.grid(row=0, column=2, sticky="e", padx=(10, 0))
 
         # Map settings style → UI label and back
@@ -1309,46 +1284,32 @@ class App(tk.Tk):
         }
         _label_to_style = {v: k for k, v in _style_to_label.items()}
 
-        # Load last-saved Jyutping mode from config, or fall back to settings default
-        try:
-            _cfg = load_config()
-        except Exception:
-            _cfg = {}
-        try:
-            _last_jp_mode = _cfg.get("CURRENT_JYUTPING_MODE") if isinstance(_cfg, dict) else None
-        except Exception:
-            _last_jp_mode = None
-        _initial_jp_mode = _last_jp_mode or JYUTPING_MODE_DEFAULT  # UI label: "Learner" | "Strict" | "Borders"
+        # Set the UI variable to the label directly from preferences
+        self.jyutping_style_var = tk.StringVar(value=self.prefs.jyutping_mode)
 
-        # Set the UI variable to the label directly
-        self.jyutping_style_var = tk.StringVar(value=_initial_jp_mode)
-
-        # Also sync the underlying style string used by rendering
+        # Sync the underlying style string used by rendering
         try:
-            globals()["JYUTPING_MODE_DEFAULT"] = _label_to_style.get(_initial_jp_mode, "learner")
+            globals()["JYUTPING_STYLE"] = _label_to_style.get(self.jyutping_style_var.get(), "learner")
         except Exception:
             pass
-        # Reflect initial mode into settings so other modules can read it
 
         def _on_jp_style_change():
-            # Update the global style so rendering picks it up
+            # Update the global runtime style from the selected label
             try:
                 new_style = _label_to_style.get(self.jyutping_style_var.get(), "learner")
-                globals()["JYUTPING_MODE_DEFAULT"] = new_style
+                globals()["JYUTPING_STYLE"] = new_style
             except Exception:
                 pass
-            # Persist the chosen Jyutping mode label to settings and config.json
+
+            # Persist to unified preferences
             try:
-                _cfg = load_config()
-                if not isinstance(_cfg, dict):
-                    _cfg = {}
-                _cfg["CURRENT_JYUTPING_MODE"] = self.jyutping_style_var.get()
-                save_config(_cfg)
+                self.prefs.jyutping_mode = self.jyutping_style_var.get()
+                save_prefs(self.prefs)
             except Exception:
                 pass
-            # Refresh the Jyutping answer display if present
+
+            # Refresh current display
             try:
-                # If there is a current selection, re-render that; otherwise, render the first tile if available
                 text_to_render = None
                 if getattr(self, "selected_label", None) is not None:
                     try:
@@ -1366,9 +1327,12 @@ class App(tk.Tk):
                 pass
 
         # Three radio buttons
-        rb_jp_learner = ttk.Radiobutton(jyut_frame, text="Learner", variable=self.jyutping_style_var, value="Learner", command=_on_jp_style_change)
-        rb_jp_strict = ttk.Radiobutton(jyut_frame, text="Strict", variable=self.jyutping_style_var, value="Strict", command=_on_jp_style_change)
-        rb_jp_borders = ttk.Radiobutton(jyut_frame, text="Borders", variable=self.jyutping_style_var, value="Borders", command=_on_jp_style_change)
+        rb_jp_learner = ttk.Radiobutton(jyut_frame, text="Learner", variable=self.jyutping_style_var, value="Learner",
+                                        command=_on_jp_style_change)
+        rb_jp_strict = ttk.Radiobutton(jyut_frame, text="Strict", variable=self.jyutping_style_var, value="Strict",
+                                       command=_on_jp_style_change)
+        rb_jp_borders = ttk.Radiobutton(jyut_frame, text="Borders", variable=self.jyutping_style_var, value="Borders",
+                                        command=_on_jp_style_change)
 
         rb_jp_learner.pack(anchor="w")
         rb_jp_strict.pack(anchor="w")
@@ -1387,7 +1351,7 @@ class App(tk.Tk):
             instr_container,
             height=2,
             width=56,
-            font=("Helvetica", 24),
+            font=("Helvetica", 20),
             wrap="word",
             state="disabled",
             relief="flat",
@@ -1452,7 +1416,7 @@ class App(tk.Tk):
             cont = tk.Frame(
                 self.tile_frame,
                 bd=0,
-                highlightthickness=2,            # reserve space from the start
+                highlightthickness=2,  # reserve space from the start
                 highlightbackground=self.cget("bg"),  # same as background → invisible initially
                 bg=self.cget("bg"),
             )
@@ -1499,7 +1463,7 @@ class App(tk.Tk):
             self.label_to_container[lbl] = cont
 
         # Details box below the grid with a thin border and title "DETAILS"
-        details_frame = tk.LabelFrame(self, text="DETAILS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
+        details_frame = tk.LabelFrame(self, text="MEANING & SOME PRONUNCIATION HINTS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
         details_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap=tk.WORD)
         self.details.configure(font=("Helvetica", 16))
@@ -1529,6 +1493,8 @@ class App(tk.Tk):
         self._show_instructions_message()
         # Apply initial focus based on current mode (shows blue outline on Play if Listen & Choose)
         self._apply_mode_focus()
+        # Final pass: ensure Play has focus when Listen & Choose is the saved pref
+        self.after(220, self._enforce_startup_focus)
 
     def _dbg(self, *args):
         try:
@@ -1538,17 +1504,26 @@ class App(tk.Tk):
             pass
 
     def _sync_play_visibility(self):
-        """Show the Play container only in Listen & Choose mode."""
+        """Keep the Play container gridded; hide/show the button to avoid window size jumps."""
         try:
             mode = (self.play_mode_var.get() or "").strip().lower()
             if mode == "listen & choose":
-                self.play_container.grid()
+                # Ensure button is packed and enabled
                 try:
+                    # If the button is currently forgotten, re-pack it
+                    if not getattr(self.make_sound_btn, "_is_packed", False):
+                        self.make_sound_btn.pack(fill="both", expand=True)
+                        self.make_sound_btn._is_packed = True
                     self.make_sound_btn.configure(state="normal")
                 except Exception:
                     pass
             else:
-                self.play_container.grid_remove()
+                # Hide the button but keep the container occupying space
+                try:
+                    self.make_sound_btn.pack_forget()
+                    self.make_sound_btn._is_packed = False
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1561,6 +1536,25 @@ class App(tk.Tk):
                 self.after_idle(lambda: self.make_sound_btn.focus_set())
             else:
                 self.after_idle(lambda: self.shuffle_btn.focus_set())
+        except Exception:
+            pass
+
+    def _enforce_startup_focus(self):
+        """Ensure Play has focus after the window is mapped when in Listen & Choose at startup."""
+        try:
+            mode = (self.play_mode_var.get() or "").strip().lower()
+            if mode == "listen & choose":
+                # Make sure the Play button is visible and realized
+                self._sync_play_visibility()
+                if not self.make_sound_btn.winfo_viewable():
+                    # Try again a bit later if not yet mapped
+                    self.after(120, self._enforce_startup_focus)
+                    return
+                # Force focus so the blue ring appears on macOS ttk
+                try:
+                    self.make_sound_btn.focus_force()
+                except Exception:
+                    self.make_sound_btn.focus_set()
         except Exception:
             pass
 
@@ -1610,6 +1604,11 @@ class App(tk.Tk):
             self.instructions_box.configure(state="normal")
             self.instructions_box.delete("1.0", tk.END)
             self.instructions_box.insert(tk.END, (text or "") + "\n", "left")
+            # Set font size to 20pt for inserted text (if not handled by widget)
+            try:
+                self.instructions_box.tag_configure("left", font=("Helvetica", 20))
+            except Exception:
+                pass
             self.instructions_box.configure(state="disabled")
             self.mode_msg_visible = True
         except Exception:
@@ -1624,9 +1623,6 @@ class App(tk.Tk):
             self.mode_msg_visible = False
         except Exception:
             pass
-
-
-
 
     def _derive_initial_from_jp(self, jp: str) -> str:
         try:
@@ -1643,7 +1639,8 @@ class App(tk.Tk):
             try:
                 cont = self.label_to_container.get(self.selected_label)
                 if cont is not None:
-                    cont.configure(bg=self.cget("bg"), highlightbackground=self.cget("bg"))  # keep thickness, hide border
+                    cont.configure(bg=self.cget("bg"),
+                                   highlightbackground=self.cget("bg"))  # keep thickness, hide border
             except Exception:
                 pass
             self.selected_label = None
@@ -1770,7 +1767,7 @@ class App(tk.Tk):
                 speak_text_async(
                     text_to_play,
                     voice="Sin-ji",
-                    rate=TTS_RATE,
+                    rate=TTS_RATE_DEFAULT,
                     enabled=SPEAK_ON_CLICK,
                 )
             else:
@@ -1895,6 +1892,7 @@ class App(tk.Tk):
 
     def _render_meanings_block(self, text, meanings, is_single_char, add_service_note, examples):
         """Write meanings (and labels if single char), then examples, then note, into DETAILS."""
+        # Font size now set via widget config; do not set inline font sizes.
         if is_single_char:
             labels, cleaned = extract_labels_and_clean(meanings, text)
             if not labels:
@@ -2015,7 +2013,8 @@ class App(tk.Tk):
                 try:
                     for child in self.jp_answer_frame.winfo_children():
                         child.destroy()
-                    lbl = tk.Label(self.jp_answer_frame, text=_format_jyutping_for_display(text, jp), font=("Helvetica", 24, "bold"))
+                    lbl = tk.Label(self.jp_answer_frame, text=_format_jyutping_for_display(text, jp),
+                                   font=("Helvetica", 24, "bold"))
                     lbl.pack(side="left")
                 except Exception:
                     pass
@@ -2025,7 +2024,7 @@ class App(tk.Tk):
                 speak_text_async(
                     text,
                     voice="Sin-ji",
-                    rate=TTS_RATE,
+                    rate=TTS_RATE_DEFAULT,
                     enabled=SPEAK_ON_CLICK,
                 )
             except Exception:
@@ -2144,6 +2143,7 @@ class App(tk.Tk):
             lbl = tk.Label(self.jp_answer_frame, text=txt, font=big_font, fg=fg, bg=self.cget("bg"))
             # No vertical padding; keeps row height stable on first draw
             lbl.pack(side="left")
+
         for wi, syls in enumerate(words):
             for si, syl in enumerate(syls):
                 # Determine tone color
