@@ -1161,8 +1161,8 @@ class App(tk.Tk):
         # --- Play mode radios: group inside play_mode_container ---
         self.play_mode_var = tk.StringVar(value="Pronunciation")
 
-        # Create a child frame that will be gridded, and pack radios **inside it**
-        radios_frame = tk.Frame(play_mode_container)
+        # Create a LabelFrame for play mode radios
+        radios_frame = tk.LabelFrame(play_mode_container, text="Mode", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
         radios_frame.grid(row=0, column=0, sticky="nw")
 
         rb1 = ttk.Radiobutton(
@@ -1201,9 +1201,9 @@ class App(tk.Tk):
 
         # --- Column 4: Rate spinbox (100–260 in steps of 10) ---
         col4_frame = tk.Frame(settings_container)
-        col4_frame.grid(row=0, column=0, sticky="e", padx=(10, 0))
+        col4_frame.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-        self.rate_label = ttk.Label(col4_frame, text="Rate:")
+        self.rate_label = ttk.Label(col4_frame, text="TTS Rate:")
         self.rate_label.pack(side="left", padx=(0, 4))
 
         try:
@@ -1221,6 +1221,60 @@ class App(tk.Tk):
             width=5
         )
         self.rate_spin.pack(side="left")
+
+        # --- Jyutping display mode radios (Learner / Strict / Borders) ---
+        jyut_frame = tk.LabelFrame(settings_container, text="Jyutping", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
+        jyut_frame.grid(row=0, column=2, sticky="e", padx=(10, 0))
+
+        # Map settings style → UI label and back
+        _style_to_label = {
+            "learner": "Learner",
+            "strict": "Strict",
+            "strict_with_word_boundaries": "Borders",
+        }
+        _label_to_style = {v: k for k, v in _style_to_label.items()}
+
+        # Default from settings.py (fallback to 'learner')
+        try:
+            _current_style = (JYUTPING_STYLE or "learner").strip().lower()
+        except Exception:
+            _current_style = "learner"
+        self.jyutping_style_var = tk.StringVar(value=_style_to_label.get(_current_style, "Learner"))
+
+        def _on_jp_style_change():
+            # Update the global style so rendering picks it up
+            try:
+                new_style = _label_to_style.get(self.jyutping_style_var.get(), "learner")
+                globals()["JYUTPING_STYLE"] = new_style
+            except Exception:
+                pass
+            # Refresh the Jyutping answer display if present
+            try:
+                # If there is a current selection, re-render that; otherwise, render the first tile if available
+                text_to_render = None
+                if getattr(self, "selected_label", None) is not None:
+                    try:
+                        text_to_render = self.selected_label.cget("text")
+                    except Exception:
+                        text_to_render = None
+                if not text_to_render and self.labels:
+                    try:
+                        text_to_render = self.labels[0].cget("text")
+                    except Exception:
+                        text_to_render = None
+                if text_to_render:
+                    self._render_jyutping_colored(text_to_render, "")
+            except Exception:
+                pass
+
+        # Three radio buttons
+        rb_jp_learner = ttk.Radiobutton(jyut_frame, text="Learner", variable=self.jyutping_style_var, value="Learner", command=_on_jp_style_change)
+        rb_jp_strict = ttk.Radiobutton(jyut_frame, text="Strict", variable=self.jyutping_style_var, value="Strict", command=_on_jp_style_change)
+        rb_jp_borders = ttk.Radiobutton(jyut_frame, text="Borders", variable=self.jyutping_style_var, value="Borders", command=_on_jp_style_change)
+
+        rb_jp_learner.pack(anchor="w")
+        rb_jp_strict.pack(anchor="w")
+        rb_jp_borders.pack(anchor="w")
 
         # --- Instructions & messages container inside ctrl (Columns 1–2, Row 2) ---
         instr_container = ttk.Frame(instructions_container)
