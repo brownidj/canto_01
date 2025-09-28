@@ -66,13 +66,26 @@ except Exception:
 
 # --- Import Jyutping display formatting options from settings.py, with safe defaults ---
 try:
-    from settings import JYUTPING_STYLE, JYUTPING_WORD_BOUNDARY_MARKER
+    from settings import JYUTPING_MODE_DEFAULT, JYUTPING_WORD_BOUNDARY_MARKER
 except Exception:
     JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
     JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
 try:
-    from config_manager import load_config, save_config
+    from settings import PLAY_MODE_DEFAULT
+except Exception:
+    PLAY_MODE_DEFAULT = "Pronunciation"
+try:
+    from settings import JYUTPING_MODE_DEFAULT
+except Exception:
+    JYUTPING_MODE_DEFAULT = "Strict"
+try:
+    from settings import TTS_RATE as TTS_RATE_DEFAULT
+except Exception:
+    TTS_RATE_DEFAULT = 180
+
+try:
+    from preferences import Preferences, load_prefs, save_prefs
 except Exception:
     # Provide safe fallbacks: load returns a dict; save accepts one argument
     load_config = lambda: {}
@@ -145,6 +158,7 @@ CC_CANTO_FILENAME = os.path.join("assets", "cc_canto.u8")  # CC-Canto in assets/
 
 # Divider label for mode dropdown
 DIVIDER_LABEL = "──────────"
+
 
 
 # ------------------------ Dictionary (CC-family) ------------------------ #
@@ -604,7 +618,7 @@ def _format_jyutping_for_display(text: str, fallback_jp: str) -> str:
     - strict_with_word_boundaries: join syllables within each word; words separated by a visible marker.
     Uses pycantonese to obtain per-word Jyutping when possible; falls back to the provided jp string.
     """
-    style = (JYUTPING_STYLE or "learner").strip().lower()
+    style = (JYUTPING_MODE_DEFAULT or "learner").strip().lower()
     marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
 
     # 1) Try to segment into lexicon words first, so "strict" can join within each segment
@@ -1061,6 +1075,13 @@ class App(tk.Tk):
         tk.Tk.__init__(self)
         self.title(APP_TITLE)
 
+        # Preferences: load or fall back to defaults
+        self.prefs = load_prefs(Preferences(
+            play_mode=PLAY_MODE_DEFAULT,
+            jyutping_mode=JYUTPING_MODE_DEFAULT,
+            tts_rate=TTS_RATE_DEFAULT,
+        ))
+
         # Initialize runtime state early to avoid AttributeError before first shuffle
         self.selected_label = None
         self.pool = []
@@ -1174,13 +1195,13 @@ class App(tk.Tk):
         # --- Audio Controls (no TTS UI; use settings.py) ---
         # Play button container (no focus ring/highlight management)
         self.play_container = tk.Frame(
-            col2_frame,
+            play_mode_container,
             bd=0,
             relief="flat",
             padx=0,
             pady=0,
         )
-        self.play_container.pack(side="left", padx=(8, 0))
+        self.play_container.grid(row=0, column=0, sticky="nw", padx=(0, 8))
 
         self.make_sound_btn = ttk.Button(self.play_container, text="Play sound", width=10, takefocus=1, command=self._on_make_sound)
         self.make_sound_btn.pack(fill="both", expand=True)
@@ -1197,18 +1218,27 @@ class App(tk.Tk):
         except Exception:
             last_mode = None
         initial_mode = last_mode or PLAY_MODE_DEFAULT
-        self.play_mode_var = tk.StringVar(value=initial_mode)
+        self.play_mode_var = tk.StringVar(value=self.prefs.play_mode)
+        self.jyutping_style_var = tk.StringVar(value=self.prefs.jyutping_mode)
+        self.rate_var = tk.IntVar(value=self.prefs.tts_rate)
 
-        # Reflect the initial mode back into settings so other modules can read it
+        # Hide Play button container if startup mode is Pronunciation
         try:
-            import settings as _settings_mod
-            _settings_mod.CURRENT_PLAY_MODE = self.play_mode_var.get()
+            mode = (self.play_mode_var.get() or "").strip().lower()
+            if mode != "listen & choose":
+                self.play_container.grid_remove()
+            else:
+                self.play_container.grid()
         except Exception:
             pass
 
+        self._sync_play_visibility()
+        self._apply_mode_focus()
+
         # Create a LabelFrame for play mode radios
-        radios_frame = tk.LabelFrame(play_mode_container, text="Mode", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
-        radios_frame.grid(row=0, column=0, sticky="nw")
+        radios_frame = tk.LabelFrame(play_mode_container, text="Mode", bd=1, relief="solid", labelanchor="nw", padx=6,
+                                     pady=6)
+        radios_frame.grid(row=0, column=1, sticky="nw")
 
         rb1 = ttk.Radiobutton(
             radios_frame,
@@ -1295,29 +1325,19 @@ class App(tk.Tk):
 
         # Also sync the underlying style string used by rendering
         try:
-            globals()["JYUTPING_STYLE"] = _label_to_style.get(_initial_jp_mode, "learner")
+            globals()["JYUTPING_MODE_DEFAULT"] = _label_to_style.get(_initial_jp_mode, "learner")
         except Exception:
             pass
         # Reflect initial mode into settings so other modules can read it
-        try:
-            import settings as _settings_mod
-            _settings_mod.CURRENT_JYUTPING_MODE = _initial_jp_mode
-        except Exception:
-            pass
 
         def _on_jp_style_change():
             # Update the global style so rendering picks it up
             try:
                 new_style = _label_to_style.get(self.jyutping_style_var.get(), "learner")
-                globals()["JYUTPING_STYLE"] = new_style
+                globals()["JYUTPING_MODE_DEFAULT"] = new_style
             except Exception:
                 pass
             # Persist the chosen Jyutping mode label to settings and config.json
-            try:
-                import settings as _settings_mod
-                _settings_mod.CURRENT_JYUTPING_MODE = self.jyutping_style_var.get()
-            except Exception:
-                pass
             try:
                 _cfg = load_config()
                 if not isinstance(_cfg, dict):
@@ -1517,6 +1537,21 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def _sync_play_visibility(self):
+        """Show the Play container only in Listen & Choose mode."""
+        try:
+            mode = (self.play_mode_var.get() or "").strip().lower()
+            if mode == "listen & choose":
+                self.play_container.grid()
+                try:
+                    self.make_sound_btn.configure(state="normal")
+                except Exception:
+                    pass
+            else:
+                self.play_container.grid_remove()
+        except Exception:
+            pass
+
     def _apply_mode_focus(self):
         """Give focus to Play (Listen & Choose) or Shuffle (Pronunciation) after idle so the focus ring is shown."""
         try:
@@ -1530,52 +1565,36 @@ class App(tk.Tk):
             pass
 
     def _on_play_mode_change(self, event=None):
-        """Switch between Pronunciation and Listen & Choose modes (enable/disable Play button and set gating)."""
+        """Switch between Pronunciation and Listen & Choose modes (show/hide Play button and set gating)."""
         play_mode = (self.play_mode_var.get() or "Pronunciation").strip().lower()
-        # Persist the current play mode to settings and config.json
-        current_mode = self.play_mode_var.get()
+
+        # Save preference
         try:
-            import settings as _settings_mod
-            _settings_mod.CURRENT_PLAY_MODE = current_mode
+            self.prefs.play_mode = self.play_mode_var.get()
+            save_prefs(self.prefs)
         except Exception:
             pass
 
-        try:
-            cfg = load_config()
-            cfg["CURRENT_PLAY_MODE"] = current_mode
-            save_config(cfg)
-        except Exception:
-            pass
         if play_mode == "listen & choose":
-            try:
-                self.make_sound_btn.configure(state="normal")
-            except Exception:
-                pass
             self.require_audio_before_selection = True
             self.has_played_for_round = False
         else:
-            try:
-                self.make_sound_btn.configure(state="disabled")
-            except Exception:
-                pass
             self.require_audio_before_selection = False
             self.has_played_for_round = True
-        # Unhighlight any current tile selection when switching modes
+
+        # Clear selection & shuffle
         try:
             self._clear_selection()
         except Exception:
             pass
-
-        # Shuffle tiles automatically on mode change
         try:
             self.shuffle()
         except Exception:
             pass
 
-        # Move focus depending on mode (ensures blue outline appears on Play in Listen & Choose)
+        # Visibility, focus, message
+        self._sync_play_visibility()
         self._apply_mode_focus()
-
-        # Update play-mode help text using central messages and mark visible
         self._show_instructions_message()
 
     def _show_instructions_message(self, text: str | None = None):
@@ -2079,7 +2098,7 @@ class App(tk.Tk):
     def _render_jyutping_colored(self, text: str, fallback_jp: str):
         """
         Render Jyutping with per-syllable colors according to TONE_COLOURS.
-        Honors JYUTPING_STYLE ('learner' | 'strict' | 'strict_with_word_boundaries').
+        Honors JYUTPING_MODE_DEFAULT ('learner' | 'strict' | 'strict_with_word_boundaries').
         """
         # Clear previous content
         try:
@@ -2087,7 +2106,7 @@ class App(tk.Tk):
                 child.destroy()
         except Exception:
             pass
-        style = (JYUTPING_STYLE or "learner").strip().lower()
+        style = (JYUTPING_MODE_DEFAULT or "learner").strip().lower()
         marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
         # Build segments (words) first
         segments = None

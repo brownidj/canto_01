@@ -42,3 +42,11 @@ PLAY_TOOLTIP = "Play a random tile’s pronunciation."
 PLAYMODE_TOOLTIP = "Choose how to practice: Listen & Choose or Hear Pronunciation."
 MODE_TOOLTIP = "Pick which list the tiles come from."
 TOPN_TOOLTIP = "Set how many frequent items to include."
+
+# Centralized Jyutping style ↔ label mappings
+STYLE_TO_LABEL = {
+    "learner": "Learner",
+    "strict": "Strict",
+    "strict_with_word_boundaries": "Borders",
+}
+LABEL_TO_STYLE = {v: k for k, v in STYLE_TO_LABEL.items()}

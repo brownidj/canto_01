@@ -10,8 +10,8 @@ PLAY_MODE_DEFAULT = "Pronunciation"  # default play mode ("Pronunciation" | "Lis
 CURRENT_PLAY_MODE = PLAY_MODE_DEFAULT
 
 
-JYUTPING_STYLE = "strict"  # "learner" | "strict" | "strict_with_word_boundaries"
-JYUTPING_MODE = JYUTPING_STYLE
+JYUTPING_MODE_DEFAULT = "strict"  # "learner" | "strict" | "strict_with_word_boundaries"
+CURRENT_JYUTPING_MODE = JYUTPING_MODE_DEFAULT
 JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
 SWATCH_BASELINE_OFFSET_PX = 0  # try 6–14 until it visually matches your Jyutping baseline
