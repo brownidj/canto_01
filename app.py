@@ -1068,110 +1068,205 @@ class App(tk.Tk):
         # Controls
         ctrl = ttk.Frame(self, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
-        # Lock the status row (row 2) height so it won't jump on first render
+        # Ensure the controls row (row 0) is tall enough to fit three radio buttons
         try:
-            ctrl.grid_rowconfigure(2, minsize=60)
+            ctrl.grid_rowconfigure(0, minsize=48)  # adjust 90–130 if you change fonts
         except Exception:
             pass
         # Make Jyutping answer (left) expand, Tone key (right) fixed
         ctrl.grid_columnconfigure(0, weight=0)
-        ctrl.grid_columnconfigure(6, weight=1)
-        ctrl.grid_columnconfigure(7, weight=0)
         ctrl.grid_columnconfigure(1, weight=1)
+        try:
+            # Ensure highlighted columns have a measurable width for debug borders
+            ctrl.grid_columnconfigure(2, minsize=120)
+            ctrl.grid_columnconfigure(3, minsize=120)
+        except Exception:
+            pass
 
-        self.mode_var = tk.StringVar(value="Andy's List")
+        self.word_list_var = tk.StringVar(value="Andy's List")
         self._last_mode_label = "Minimal Common"
-        self.mode_combo = ttk.Combobox(
-            ctrl,
+
+        # --- Containerized layout inside ctrl ---
+        basic_ctrls_container = ttk.Frame(ctrl)
+        basic_ctrls_container.grid(row=0, column=0, columnspan=2, rowspan=1, sticky="nw")  # Columns 1–2, Row 1
+        # Do not let col 0 expand; keep both cols natural so controls stay together on the left
+        basic_ctrls_container.grid_columnconfigure(0, weight=0)
+        basic_ctrls_container.grid_columnconfigure(1, weight=0)
+
+        instructions_container = tk.Frame(ctrl, highlightthickness=0, bd=0, takefocus=0)
+        instructions_container.grid(row=1, column=0, columnspan=2, rowspan=1, sticky="nw")  # Columns 1–2, Row 2
+        instructions_container.grid_columnconfigure(0, weight=1)
+        try:
+            instructions_container.grid_propagate(True)
+        except Exception:
+            pass
+
+        play_mode_container = ttk.Frame(ctrl)
+        play_mode_container.grid(row=0, column=2, rowspan=3, sticky="nsw", padx=(8, 0))  # Column 3, full height of rows 1–3
+
+        settings_container = ttk.Frame(ctrl)
+        settings_container.grid(row=0, column=3, columnspan=2, rowspan=1, sticky="ne", padx=(10, 0))  # Columns 4–5, Row 1
+        settings_container.grid_columnconfigure(0, weight=1)
+
+        # --- Combo + Words/Top + Spinbox: all inside a frame for clean alignment ---
+        combo_frame = tk.Frame(basic_ctrls_container)
+        combo_frame.grid(row=0, column=0, sticky="nw", padx=(0, 0))
+
+        self.word_list_combo = ttk.Combobox(
+            combo_frame,
             values=["Andy's List", "Minimal Common", "Tricky Initials", "Test Words", DIVIDER_LABEL, "Characters", "Words", "Both"],
-            textvariable=self.mode_var,
+            textvariable=self.word_list_var,
             state="readonly",
             width=14,
         )
-        self.mode_combo.grid(row=0, column=0, padx=(0, 10))
-        ToolTip(self.mode_combo, MODE_TOOLTIP)
-        self.mode_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
+        self.word_list_combo.pack(side="left")
+        ToolTip(self.word_list_combo, MODE_TOOLTIP)
+        self.word_list_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
 
-        self.top_label = ttk.Label(ctrl, text="Words:")
-        self.top_label.grid(row=0, column=2, padx=(10, 4))
+        self.words_or_top_label = ttk.Label(combo_frame, text="Words:")
+        self.words_or_top_label.pack(side="left", padx=(10, 4))
         DEFAULT_TOPN = 300
-        self.topn_var = tk.IntVar(value=DEFAULT_TOPN)
-        self.topn_spin = ttk.Spinbox(ctrl, from_=20, to=5000, increment=10, textvariable=self.topn_var, width=5,
-                                     command=self.rebuild_pool)
-        self.topn_spin.grid(row=0, column=3)
-        ToolTip(self.topn_spin, TOPN_TOOLTIP)
+        self.top_words_number = tk.IntVar(value=DEFAULT_TOPN)
+        self.top_spin_number = ttk.Spinbox(combo_frame, from_=20, to=5000, increment=10, textvariable=self.top_words_number, width=5,
+                                           command=self.rebuild_pool)
+        self.top_spin_number.pack(side="left")
+        ToolTip(self.top_spin_number, TOPN_TOOLTIP)
         # Initialize for Minimal Common: show total and disable spin
-        self.topn_var.set(len(ANDYS_LIST))
-        self.topn_spin.configure(state="disabled")
+        self.top_words_number.set(len(ANDYS_LIST))
+        self.top_spin_number.configure(state="disabled")
 
-        self.shuffle_btn = ttk.Button(ctrl, text="Shuffle", command=self.shuffle)
-        self.shuffle_btn.grid(row=0, column=4, padx=(10, 0))
+        # --- Column 2: Shuffle and Play sound (left-aligned together) ---
+        col2_frame = tk.Frame(basic_ctrls_container)
+        col2_frame.grid(row=0, column=1, sticky="nw", padx=(10, 0))
+
+        self.shuffle_btn = ttk.Button(col2_frame, text="Shuffle", command=self.shuffle)
+        self.shuffle_btn.pack(side="left")
         ToolTip(self.shuffle_btn, SHUFFLE_MESSAGE)
 
-        # Play mode: Listen & Choose (default) vs Hear Pronunciation
-        self.play_mode_var = tk.StringVar(value="Hear Pronunciation")
-        self.play_mode_combo = ttk.Combobox(
-            ctrl,
-            values=["Hear Pronunciation", "Listen & Choose"],
-            state="readonly",
-            width=24,
-            textvariable=self.play_mode_var,
-        )
-        # Move Play sound button before mode combobox (column 5)
         # --- Audio Controls (no TTS UI; use settings.py) ---
         # Play button container (no focus ring/highlight management)
         self.play_container = tk.Frame(
-            ctrl,
+            col2_frame,
             bd=0,
             relief="flat",
             padx=0,
             pady=0,
         )
-        self.play_container.grid(row=0, column=5, padx=(8, 0))
+        self.play_container.pack(side="left", padx=(8, 0))
 
         self.make_sound_btn = ttk.Button(self.play_container, text="Play sound", width=10, takefocus=1, command=self._on_make_sound)
         self.make_sound_btn.pack(fill="both", expand=True)
         ToolTip(self.make_sound_btn, PLAY_TOOLTIP)
 
-        self.play_mode_combo.grid(row=0, column=6, padx=(8, 0))
-        ToolTip(self.play_mode_combo, PLAYMODE_TOOLTIP)
-        self.play_mode_combo.bind("<<ComboboxSelected>>", self._on_play_mode_change)
+        # --- Play mode radios: group inside play_mode_container ---
+        self.play_mode_var = tk.StringVar(value="Pronunciation")
 
+        # Create a child frame that will be gridded, and pack radios **inside it**
+        radios_frame = tk.Frame(play_mode_container)
+        radios_frame.grid(row=0, column=0, sticky="nw")
 
-        # --- Static UI under the control row ---
-        # Instructions box moved above Jyutping/Tone key line, spanning full width (columns 0..7)
+        rb1 = ttk.Radiobutton(
+            radios_frame,
+            text="Pronunciation",
+            variable=self.play_mode_var,
+            value="Pronunciation",
+            command=self._on_play_mode_change,
+        )
+        rb2 = ttk.Radiobutton(
+            radios_frame,
+            text="Listen & Choose",
+            variable=self.play_mode_var,
+            value="Listen & Choose",
+            command=self._on_play_mode_change,
+        )
+        rb3 = ttk.Radiobutton(
+            radios_frame,
+            text="Future Option",
+            variable=self.play_mode_var,
+            value="Future Option",
+            command=self._on_play_mode_change,
+        )
+
+        rb1.configure(takefocus=1)
+        rb2.configure(takefocus=1)
+        rb3.configure(takefocus=1)
+
+        rb1.pack(anchor="w")
+        rb2.pack(anchor="w")
+        rb3.pack(anchor="w")
+
+        ToolTip(rb1, PLAYMODE_TOOLTIP)
+        ToolTip(rb2, PLAYMODE_TOOLTIP)
+        ToolTip(rb3, PLAYMODE_TOOLTIP)
+
+        # --- Column 4: Rate spinbox (100–260 in steps of 10) ---
+        col4_frame = tk.Frame(settings_container)
+        col4_frame.grid(row=0, column=0, sticky="e", padx=(10, 0))
+
+        self.rate_label = ttk.Label(col4_frame, text="Rate:")
+        self.rate_label.pack(side="left", padx=(0, 4))
+
+        try:
+            default_rate = int(TTS_RATE)
+        except Exception:
+            default_rate = 180
+
+        self.rate_var = tk.IntVar(value=default_rate)
+        self.rate_spin = ttk.Spinbox(
+            col4_frame,
+            from_=100,
+            to=260,
+            increment=10,
+            textvariable=self.rate_var,
+            width=5
+        )
+        self.rate_spin.pack(side="left")
+
+        # --- Instructions & messages container inside ctrl (Columns 1–2, Row 2) ---
+        instr_container = ttk.Frame(instructions_container)
+        instr_container.grid(row=0, column=0, sticky="nw", padx=(0, 0), pady=(0, 0))
+        try:
+            instr_container.grid_columnconfigure(0, weight=1)
+            instr_container.grid_propagate(True)
+        except Exception:
+            pass
+
         self.instructions_box = tk.Text(
-            ctrl,
+            instr_container,
             height=2,
             width=70,
             font=("Helvetica", 24),
             wrap="word",
             state="disabled",
             relief="flat",
-            bg=self.cget("bg")
+            bg=self.cget("bg"),
+            takefocus=0,  # <- add this
+            highlightthickness=0  # <- ensures no border if clicked
         )
-        self.instructions_box.grid(row=1, column=0, columnspan=8, padx=(0, 0), pady=(20, 0), sticky="ew")
-        # Centering tag for Text widget
+        self.instructions_box.grid(row=0, column=0, sticky="nw")
         try:
-            self.instructions_box.tag_configure("center", justify="center")
+            self.instructions_box.tag_configure("left", justify="left")
         except Exception:
             pass
 
-        # Jyutping answer frame (big 36pt), now in row 2, left, bottom-aligned vertically
+        # --- Debug overlay for ctrl grid ---
+
+        # --- Status row below ctrl: tone legend (left) + Jyutping answer (right) ---
+        status = ttk.Frame(self)
+        status.grid(row=1, column=0, sticky="ew")
+        status.grid_columnconfigure(0, weight=0)
+        status.grid_columnconfigure(1, weight=1)
+
+        self.legend_frame = tk.Frame(status)
+        self.legend_frame.grid(row=0, column=0, sticky="w", pady=(6, 0))
+
         self.status_var = tk.StringVar(value="Jyutping: ")
-        self.jp_answer_frame = tk.Frame(ctrl, bg=self.cget("bg"))
-        self.jp_answer_frame.grid(
-            row=2, column=1, columnspan=7,
-            padx=(30, 0), pady=(0, 0),
-            sticky="sew"
-        )
-        self.jp_answer_frame.pack_propagate(False)  # prevent pack from resizing frame to its children
+        self.jp_answer_frame = tk.Frame(status, bg=self.cget("bg"))
+        self.jp_answer_frame.grid(row=0, column=1, sticky="sew", padx=(30, 0))
+        self.jp_answer_frame.pack_propagate(False)
         self.jp_answer_frame.configure(height=60)
 
-        # Tone legend bar, now on same row as Jyutping, bottom-aligned vertically to left side
-        self.legend_frame = tk.Frame(ctrl)
-        self.legend_frame.grid(row=2, column=0, sticky="sw", pady=(6, 0))
-        # Create swatches first so size requests are accurate
+        # Recreate swatches in legend_frame
         for idx, tone in enumerate(["1", "2", "3", "4", "5", "6"]):
             fg = TONE_KEY_TEXT_COLOURS.get(str(tone), "#000000")
             bg = TONE_COLOURS.get(str(tone))
@@ -1181,7 +1276,7 @@ class App(tk.Tk):
                 ToolTip(swatch, TONE_DESCRIPTIONS.get(tone, ""))
             except Exception:
                 pass
-        # Now realize and lock width/height, then disable propagation to prevent jumps
+
         try:
             self.legend_frame.update_idletasks()
             needed_w = self.legend_frame.winfo_reqwidth()
@@ -1192,9 +1287,9 @@ class App(tk.Tk):
 
         # Grid for 1 × 5 tiles
         self.tile_frame = ttk.Frame(self, padding=10)
-        self.tile_frame.grid(row=1, column=0, sticky="nsew")
+        self.tile_frame.grid(row=2, column=0, sticky="nsew")
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
         self.labels = []
         self.containers = []
@@ -1253,12 +1348,18 @@ class App(tk.Tk):
 
         # Details box below the grid with a thin border and title "DETAILS"
         details_frame = tk.LabelFrame(self, text="DETAILS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
-        details_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        details_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap=tk.WORD)
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
         self._current_initial_for_help = ""
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
+        # Ensure ctrl has 5 columns, with column 1 expandable
+        try:
+            for _c in range(5):
+                ctrl.grid_columnconfigure(_c, weight=1 if _c == 1 else 0)
+        except Exception:
+            pass
 
         # Track the target text for Recognise pronunciation correctness check
         self.target_text = None
@@ -1290,8 +1391,8 @@ class App(tk.Tk):
             pass
 
     def _on_play_mode_change(self, event=None):
-        """Switch between Hear Pronunciation and Listen & Choose modes (enable/disable Play button and set gating)."""
-        play_mode = (self.play_mode_var.get() or "hear pronunciation").strip().lower()
+        """Switch between Pronunciation and Listen & Choose modes (enable/disable Play button and set gating)."""
+        play_mode = (self.play_mode_var.get() or "Pronunciation").strip().lower()
         if play_mode == "listen & choose":
             try:
                 self.make_sound_btn.configure(state="normal")
@@ -1309,12 +1410,6 @@ class App(tk.Tk):
         # Unhighlight any current tile selection when switching modes
         try:
             self._clear_selection()
-        except Exception:
-            pass
-        # Clear blue selection highlight in the Combobox entry (macOS)
-        try:
-            self.play_mode_combo.selection_clear()
-            self.play_mode_combo.icursor('end')
         except Exception:
             pass
 
@@ -1348,12 +1443,7 @@ class App(tk.Tk):
             self._dbg("_show_instructions_message:", repr(text))
             self.instructions_box.configure(state="normal")
             self.instructions_box.delete("1.0", tk.END)
-            self.instructions_box.insert(tk.END, text)
-            try:
-                # Apply the centering tag to all content
-                self.instructions_box.tag_add("center", "1.0", "end")
-            except Exception:
-                pass
+            self.instructions_box.insert(tk.END, (text or "") + "\n", "left")
             self.instructions_box.configure(state="disabled")
             self.mode_msg_visible = True
         except Exception:
@@ -1405,7 +1495,7 @@ class App(tk.Tk):
         self.selected_label = lbl
 
     def _current_list_mode(self):
-        v = self.mode_var.get()
+        v = self.word_list_var.get()
         return {
             "Minimal Common": "very_common",
             "Andy's List": "andys",
@@ -1417,10 +1507,10 @@ class App(tk.Tk):
         }.get(v, "very_common")
 
     def _on_combo_selected(self, event=None):
-        label = self.mode_var.get()
+        label = self.word_list_var.get()
         if label == DIVIDER_LABEL:
             # Revert to the last valid selection without triggering a mode change
-            self.mode_var.set(self._last_mode_label)
+            self.word_list_var.set(self._last_mode_label)
             return
         # Update last valid label and proceed
         self._last_mode_label = label
@@ -1431,7 +1521,7 @@ class App(tk.Tk):
         mode = self._current_list_mode()
         if mode in ("very_common", "andys", "tricky", "test_words"):
             # Show total count and disable the Top spinbox for fixed dictionaries
-            self.top_label.configure(text="Words:")
+            self.words_or_top_label.configure(text="Words:")
             if mode == "very_common":
                 total = len(MINI_GLOSS)
             elif mode == "andys":
@@ -1440,14 +1530,14 @@ class App(tk.Tk):
                 total = len(TRICKY_INITIALS)
             else:  # test_words
                 total = len(TEST_WORDS)
-            self.topn_var.set(total)
-            self.topn_spin.configure(state="disabled")
+            self.top_words_number.set(total)
+            self.top_spin_number.configure(state="disabled")
         else:
             # Character/Word/Both modes: enable Top spinbox
-            self.top_label.configure(text="Top:")
-            if self.topn_var.get() in (len(MINI_GLOSS), len(ANDYS_LIST), len(TRICKY_INITIALS)):
-                self.topn_var.set(300)
-            self.topn_spin.configure(state="normal")
+            self.words_or_top_label.configure(text="Top:")
+            if self.top_words_number.get() in (len(MINI_GLOSS), len(ANDYS_LIST), len(TRICKY_INITIALS)):
+                self.top_words_number.set(300)
+            self.top_spin_number.configure(state="normal")
         # Rebuild and refresh tiles
         self.rebuild_pool()
         self.shuffle()
@@ -1455,7 +1545,7 @@ class App(tk.Tk):
     def _on_make_sound(self):
         """Play the pronunciation for the current round.
         - In Listen & Choose: replay the existing target if the round is active; otherwise start a new round and pick a new target.
-        - In Hear Pronunciation: button is disabled anyway.
+        - In Pronunciation: button is disabled anyway.
         """
         try:
             # Ensure we have tiles to choose from
@@ -1499,7 +1589,7 @@ class App(tk.Tk):
                         self._hide_instructions_message()
                     self._set_play_label(True)
             else:
-                # Hear Pronunciation mode keeps Play disabled; no-op guard
+                # Pronunciation mode keeps Play disabled; no-op guard
                 try:
                     if str(self.make_sound_btn.cget("state")).lower() == "disabled":
                         return
@@ -1528,7 +1618,7 @@ class App(tk.Tk):
         Build the candidate pool based on UI (mode + top_n).
         """
         mode = self._current_list_mode()
-        topn = self.topn_var.get()
+        topn = self.top_words_number.get()
         try:
             if mode == "very_common":
                 self.pool = get_minigloss_entries()
@@ -1671,10 +1761,10 @@ class App(tk.Tk):
             if self.require_audio_before_selection and not self.has_played_for_round:
                 messagebox.showinfo("Recognise pronunciation", "Click ‘Play’ before selecting a tile.")
                 return
-            # # In Hear Pronunciation mode, hide the hint as soon as a tile is selected
+            # # In Pronunciation mode, hide the hint as soon as a tile is selected
             # try:
             #     mode = (self.play_mode_var.get() or "").strip().lower()
-            #     if mode == "hear pronunciation" and self.mode_msg_visible:
+            #     if mode == "Pronunciation" and self.mode_msg_visible:
             #         self._hide_instructions_message()
             # except Exception:
             #     pass
@@ -1937,5 +2027,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-        # Remove any other references to SWATCH_BASELINE_OFFSET_PX

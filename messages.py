@@ -3,7 +3,7 @@
 PLAY_MODE_MESSAGES = {
     "play_mode": [
         "Click 'Play sound' to hear the character or word you need to select.\nYou have 3 chances",
-        "Select a character or word to hear how it is pronounced"
+        "Select a character or word to hear its pronunciation"
     ]
 }
 RESULT_MESSAGES = {
@@ -14,4 +14,4 @@ RESULT_MESSAGES = {
 SHUFFLE_MESSAGE = "Click Shuffle to change the tiles"
 DUPLICATE_WARNING = "You have already tried this one"
 MODE_LISTEN = "listen & choose"
-MODE_HEAR = "hear pronunciation"
+MODE_PRONOUNCE = "pronunciation"
