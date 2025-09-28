@@ -1076,12 +1076,12 @@ class App(tk.Tk):
         # Make Jyutping answer (left) expand, Tone key (right) fixed
         ctrl.grid_columnconfigure(0, weight=0)
         ctrl.grid_columnconfigure(1, weight=1)
-        try:
-            # Ensure highlighted columns have a measurable width for debug borders
-            ctrl.grid_columnconfigure(2, minsize=120)
-            ctrl.grid_columnconfigure(3, minsize=120)
-        except Exception:
-            pass
+        # try:
+        #     # Ensure highlighted columns have a measurable width for debug borders
+        #     ctrl.grid_columnconfigure(2, minsize=0)
+        #     ctrl.grid_columnconfigure(3, minsize=0)
+        # except Exception:
+        #     pass
 
         self.word_list_var = tk.StringVar(value="Andy's List")
         self._last_mode_label = "Minimal Common"
@@ -1092,17 +1092,12 @@ class App(tk.Tk):
         # Do not let col 0 expand; keep both cols natural so controls stay together on the left
         basic_ctrls_container.grid_columnconfigure(0, weight=0)
         basic_ctrls_container.grid_columnconfigure(1, weight=0)
-
-        instructions_container = tk.Frame(ctrl, highlightthickness=0, bd=0, takefocus=0)
-        instructions_container.grid(row=1, column=0, columnspan=2, rowspan=1, sticky="nw")  # Columns 1–2, Row 2
-        instructions_container.grid_columnconfigure(0, weight=1)
-        try:
-            instructions_container.grid_propagate(True)
-        except Exception:
-            pass
+        # Allow for multiple rows: controls row and instructions row inside basic_ctrls_container
+        basic_ctrls_container.grid_rowconfigure(0, weight=0)
+        basic_ctrls_container.grid_rowconfigure(1, weight=0)
 
         play_mode_container = ttk.Frame(ctrl)
-        play_mode_container.grid(row=0, column=2, rowspan=3, sticky="nsw", padx=(8, 0))  # Column 3, full height of rows 1–3
+        play_mode_container.grid(row=0, column=2, rowspan=1, sticky="nw", padx=(8, 0))  # Column 3, Row 1 only
 
         settings_container = ttk.Frame(ctrl)
         settings_container.grid(row=0, column=3, columnspan=2, rowspan=1, sticky="ne", padx=(10, 0))  # Columns 4–5, Row 1
@@ -1138,6 +1133,15 @@ class App(tk.Tk):
         # --- Column 2: Shuffle and Play sound (left-aligned together) ---
         col2_frame = tk.Frame(basic_ctrls_container)
         col2_frame.grid(row=0, column=1, sticky="nw", padx=(10, 0))
+
+        # --- Instructions container: now inside basic_ctrls_container, row=1 ---
+        instructions_container = tk.Frame(basic_ctrls_container, highlightthickness=0, bd=0, takefocus=0)
+        instructions_container.grid(row=1, column=0, columnspan=2, sticky="nw", pady=(6, 0))
+        instructions_container.grid_columnconfigure(0, weight=1)
+        try:
+            instructions_container.grid_propagate(True)
+        except Exception:
+            pass
 
         self.shuffle_btn = ttk.Button(col2_frame, text="Shuffle", command=self.shuffle)
         self.shuffle_btn.pack(side="left")
@@ -1288,7 +1292,7 @@ class App(tk.Tk):
         self.instructions_box = tk.Text(
             instr_container,
             height=2,
-            width=70,
+            width=56,
             font=("Helvetica", 24),
             wrap="word",
             state="disabled",
