@@ -6,6 +6,8 @@ TTS_RATE_DEFAULT = 180          # macOS 'say' words per minute (100–260 typica
 NUMBER_OF_CHANCES = 3   # number of attempts to click a tile before giving up
 TRICKY_INITIAL_EXPLANATIONS = True
 DEBUG = True
+ERROR_MESSAGE_DURATION = 5000
+
 PLAY_MODE_DEFAULT = "Pronunciation"  # default play mode ("Pronunciation" | "Listen & Choose" | "Future Option")
 CURRENT_PLAY_MODE = PLAY_MODE_DEFAULT
 

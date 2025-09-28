@@ -63,7 +63,6 @@ try:
 except Exception:
     TTS_RATE_DEFAULT = 180
 
-
 # --- Import Jyutping display formatting options from settings.py, with safe defaults ---
 try:
     from settings import JYUTPING_WORD_BOUNDARY_MARKER
@@ -88,6 +87,10 @@ try:
 except NameError:
     CURRENT_JYUTPING_MODE = JYUTPING_MODE_DEFAULT
 
+try:
+    from settings import ERROR_MESSAGE_DURATION
+except Exception:
+    ERROR_MESSAGE_DURATION = 2000  # ms fallback
 
 try:
     from preferences import Preferences, load_prefs, save_prefs
@@ -1116,6 +1119,7 @@ class App(tk.Tk):
             self.dict_name = "CC-CEDICT"
         else:
             self.dict_name = "Mini-gloss only"
+        self._err_after_id = None  # timer handle for temporary error message in Instructions
 
         # Controls
         ctrl = ttk.Frame(self, padding=10)
@@ -1475,7 +1479,7 @@ class App(tk.Tk):
             self.label_to_container[lbl] = cont
 
         # Details box below the grid with a thin border and title "DETAILS"
-        details_frame = tk.LabelFrame(self, text="MEANING & SOME PRONUNCIATION HINTS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
+        details_frame = tk.LabelFrame(self, text="MEANINGS & SOME PRONUNCIATION HINTS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
         details_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap=tk.WORD)
         self.details.configure(font=("Helvetica", 16))
@@ -1636,6 +1640,43 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def _restore_mode_message(self):
+        """Replace any temp error with the appropriate instruction for the current mode."""
+        try:
+            self._err_after_id = None
+            self._show_instructions_message()
+        except Exception:
+            pass
+
+    def _show_temp_error(self, text: str):
+        """Show a temporary error in the Instructions box, then revert after ERROR_MESSAGE_DURATION ms."""
+        try:
+            # Show error immediately
+            self._show_instructions_message(text)
+            # Cancel any previous timer, then schedule a restore
+            if getattr(self, "_err_after_id", None):
+                try:
+                    self.after_cancel(self._err_after_id)
+                except Exception:
+                    pass
+            self._err_after_id = self.after(int(ERROR_MESSAGE_DURATION), self._restore_mode_message)
+        except Exception:
+            pass
+
+    def _clear_temp_error(self):
+        """If an error timer is pending, cancel it and clear the Instructions box."""
+        try:
+            if getattr(self, "_err_after_id", None):
+                try:
+                    self.after_cancel(self._err_after_id)
+                except Exception:
+                    pass
+                self._err_after_id = None
+            # Remove the error message immediately
+            self._hide_instructions_message()
+        except Exception:
+            pass
+
     def _derive_initial_from_jp(self, jp: str) -> str:
         try:
             base = "".join(ch for ch in jp if ch not in "123456").lower()
@@ -1733,6 +1774,8 @@ class App(tk.Tk):
                 return
 
             mode = (self.play_mode_var.get() or "").strip().lower()
+            # If a temp error is showing, clear it now
+            self._clear_temp_error()
 
             # Default: no text chosen yet
             text_to_play = None
@@ -1851,11 +1894,14 @@ class App(tk.Tk):
         # Clear the Details box
         if hasattr(self, "details"):
             self.details.delete("1.0", tk.END)
-            # Clear RESULT_MESSAGES in Listen & Choose mode
+            # After shuffling, in Listen & Choose, reset the instructions to the mode hint
             try:
                 mode = (self.play_mode_var.get() or "").strip().lower()
                 if mode == "listen & choose":
-                    self.details.delete("1.0", tk.END)
+                    # Reset instructions to the appropriate PLAY_MODE message
+                    self._show_instructions_message()
+                    # Shift focus to Play sound so it shows blue outline
+                    self.after_idle(lambda: self.make_sound_btn.focus_set())
             except Exception:
                 pass
         # Reset audio-first gate each shuffle
@@ -1935,7 +1981,8 @@ class App(tk.Tk):
         def handler(event):
             # In Listen & Choose mode, require the user to play a random sound before selection
             if self.require_audio_before_selection and not self.has_played_for_round:
-                messagebox.showinfo("Recognise pronunciation", "Click ‘Play’ before selecting a tile.")
+                # Show error in Instructions, then auto-restore after ERROR_MESSAGE_DURATION
+                self._show_temp_error("Click 'Play sound' before selecting a tile.")
                 return
             # # In Pronunciation mode, hide the hint as soon as a tile is selected
             # try:
