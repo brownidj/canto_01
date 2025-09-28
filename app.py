@@ -63,16 +63,30 @@ try:
 except Exception:
     TTS_RATE_DEFAULT = 180
 
- # --- Import Jyutping display formatting options from settings.py, with safe defaults ---
+
+# --- Import Jyutping display formatting options from settings.py, with safe defaults ---
 try:
     from settings import JYUTPING_WORD_BOUNDARY_MARKER
 except Exception:
     JYUTPING_WORD_BOUNDARY_MARKER = " · "
-# Default runtime style (used by formatting helpers); will be overridden by UI selection if present
+
+# --- Jyutping label/style mappings (module-level) ---
+STYLE_TO_LABEL = {
+    "learner": "Learner",
+    "strict": "Strict",
+    "strict_with_word_boundaries": "Borders",
+}
+LABEL_TO_STYLE = {v: k for k, v in STYLE_TO_LABEL.items()}
+
+# Ensure CURRENT_JYUTPING_MODE exists as a label (UI value); default from settings
 try:
-    JYUTPING_STYLE
+    from settings import JYUTPING_MODE_DEFAULT
+except Exception:
+    JYUTPING_MODE_DEFAULT = "Strict"  # safe default label
+try:
+    from settings import CURRENT_JYUTPING_MODE
 except NameError:
-    JYUTPING_STYLE = "learner"  # "learner" | "strict" | "strict_with_word_boundaries"
+    CURRENT_JYUTPING_MODE = JYUTPING_MODE_DEFAULT
 
 
 try:
@@ -605,7 +619,12 @@ def _format_jyutping_for_display(text: str, fallback_jp: str) -> str:
     - strict_with_word_boundaries: join syllables within each word; words separated by a visible marker.
     Uses pycantonese to obtain per-word Jyutping when possible; falls back to the provided jp string.
     """
-    style = (JYUTPING_MODE_DEFAULT or "learner").strip().lower()
+    # Use CURRENT_JYUTPING_MODE (label) and map to internal style
+    try:
+        _label = (CURRENT_JYUTPING_MODE or JYUTPING_MODE_DEFAULT)
+    except Exception:
+        _label = JYUTPING_MODE_DEFAULT
+    style = LABEL_TO_STYLE.get(_label, "learner").strip().lower()
     marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
 
     # 1) Try to segment into lexicon words first, so "strict" can join within each segment
@@ -1276,28 +1295,21 @@ class App(tk.Tk):
                                    pady=6)
         jyut_frame.grid(row=0, column=2, sticky="e", padx=(10, 0))
 
-        # Map settings style → UI label and back
-        _style_to_label = {
-            "learner": "Learner",
-            "strict": "Strict",
-            "strict_with_word_boundaries": "Borders",
-        }
-        _label_to_style = {v: k for k, v in _style_to_label.items()}
+        # Map settings style → UI label and back (now at module level: STYLE_TO_LABEL / LABEL_TO_STYLE)
 
         # Set the UI variable to the label directly from preferences
         self.jyutping_style_var = tk.StringVar(value=self.prefs.jyutping_mode)
 
-        # Sync the underlying style string used by rendering
+        # Initialize module-level CURRENT_JYUTPING_MODE (label) so helpers can read it
         try:
-            globals()["JYUTPING_STYLE"] = _label_to_style.get(self.jyutping_style_var.get(), "learner")
+            globals()["CURRENT_JYUTPING_MODE"] = self.jyutping_style_var.get()
         except Exception:
             pass
 
         def _on_jp_style_change():
-            # Update the global runtime style from the selected label
+            # Update the module-level CURRENT_JYUTPING_MODE (label)
             try:
-                new_style = _label_to_style.get(self.jyutping_style_var.get(), "learner")
-                globals()["JYUTPING_STYLE"] = new_style
+                globals()["CURRENT_JYUTPING_MODE"] = self.jyutping_style_var.get()
             except Exception:
                 pass
 
