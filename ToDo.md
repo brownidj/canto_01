@@ -1,2 +1,3 @@
-- Are the differences between strict and learner-friendly easily visible?
-- In Listen and choose, do we want the player to be able to hear the other sounds before moving on, once the round has ended?
+- Persist dictionary choice
+- When swapping to Listen and choose make Play sound more prominent
+- Once Play sound has been clicked change to Play again unless Shuffle is clicked, in which case change it back to Play sound
