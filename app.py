@@ -198,6 +198,16 @@ def _chars_to_jyutping_cached(s: str):
     except Exception:
         return tuple()
 
+# Cached helper: returns a tuple of normalized Jyutping strings for each character/syllable
+@lru_cache(maxsize=2048)
+def _jp_chars_norm_cached(s: str):
+    try:
+        jps = pycantonese.characters_to_jyutping(s) or []
+        normed = tuple(_norm_jyut(jp) for jp in jps)
+        return normed
+    except Exception:
+        return tuple()
+
 def _resolve_jp_style():
     try:
         label = (globals().get("CURRENT_JYUTPING_MODE") or JYUTPING_MODE_DEFAULT)
@@ -215,10 +225,10 @@ def _build_jyut_tokens(text: str, fallback_jp: str):
 
     segments = _segment_text_cached(text)
 
-    # Build per-word syllables
-    words = []  # list[list[str]]
+    # Build per-word syllables using normalized Jyutping (with caching)
+    words = []
     for w in segments:
-        jps = _chars_to_jyutping_cached(w)
+        jps = _jp_chars_norm_cached(w)
         flat = []
         for item in jps:
             for syl in _safe_split_syllables_cached(item):
@@ -243,6 +253,7 @@ def _build_jyut_tokens(text: str, fallback_jp: str):
                 tokens.append((" ", JP_DEFAULT_FG))
     return tokens
 
+@lru_cache(maxsize=2048)
 def to_simplified(text: str) -> str:
     """Convert Traditional → Simplified if OpenCC is available; otherwise return input."""
     try:
@@ -315,6 +326,12 @@ def load_cc_canto_dict(path):
 # ------------------ Merged dictionary lookup (CC-Canto > CEDICT > MINI_GLOSS > char comp) ------------------ #
 
 
+# Caching wrapper for _greedy_seg
+@lru_cache(maxsize=1024)
+def _greedy_seg_cached(word: str, dict_keys_frozen: frozenset) -> tuple[str, ...]:
+    # Unpack frozenset back to set for original function
+    return tuple(_greedy_seg(word, set(dict_keys_frozen)))
+
 def _greedy_seg(word: str, dict_keys: set[str]) -> list[str]:
     """Greedy left-to-right longest-match segmentation using the provided dictionary keys."""
     i = 0
@@ -382,7 +399,7 @@ def lookup_meaning_merged(hanzi, cc_canto, cedict):
 
         # 2) Greedy longest-match segmentation with existing dictionary keys (traditional)
         dict_keys = set(cc_canto.keys()) | set(cedict.keys()) | set(MINI_GLOSS.keys())
-        segs = _greedy_seg(hanzi, dict_keys)
+        segs = _greedy_seg_cached(hanzi, frozenset(dict_keys))
         seg_glosses = []
         for seg in segs:
             g = []
@@ -590,6 +607,7 @@ def lookup_meaning(word, cedict):
 
 # --------------------------- Corpus & Frequency -------------------------- #
 
+@lru_cache(maxsize=1)
 def load_hkcancor_tokens():
     """
     Load HKCanCor and return a list of token strings.
@@ -643,6 +661,7 @@ def _sentence_text_from_tokens(tokens):
         return " ".join(str(t) for t in tokens)
 
 
+@lru_cache(maxsize=2048)
 def _jyutping_for_text(text: str) -> str:
     """Return a rough Jyutping line by mapping per character and joining with spaces."""
     try:
@@ -1130,6 +1149,7 @@ def _big_cjk_string_from_tokens(tokens):
     return "".join([t if isinstance(t, str) else str(t) for t in tokens])
 
 
+@lru_cache(maxsize=64)
 def get_top_char_entries(top_n):
     """
     Count individual CJK characters; return top_n as list of dicts:
@@ -1154,6 +1174,7 @@ def get_top_char_entries(top_n):
     return entries
 
 
+@lru_cache(maxsize=64)
 def get_top_word_entries(top_n, min_len=2, max_len=4):
     """
     Build CJK word tokens (contiguous CJK sequences), filter by length,
