@@ -5,6 +5,7 @@ import os
 import platform
 import random
 import re
+from functools import lru_cache
 import subprocess
 import threading
 import tkinter as tk
@@ -116,7 +117,7 @@ except Exception:
 # --- Robust Jyutping syllable splitter ---
 _JP_SYL_RE = re.compile(r"[a-z]+[1-6]", flags=re.IGNORECASE)
 
-
+# Jyutping helpers
 def _safe_split_syllables(jp_chunk: str) -> list[str]:
     """
     Split a Jyutping chunk into syllables. Handles:
@@ -139,6 +140,108 @@ def _safe_split_syllables(jp_chunk: str) -> list[str]:
         return found
     return parts if parts else [jp_chunk]
 
+JP_DEFAULT_FG = "#000000"  # neutral text colour
+JP_ANSWER_FONT = ("Helvetica", 36, "bold")  # unified Jyutping answer font
+
+def _tone_fg(tone_digit: str) -> str | None:
+    """Foreground colour for a tone digit, sourced strictly from TONE_COLOURS."""
+    try:
+        return TONE_COLOURS.get(str(tone_digit))
+    except Exception:
+        return None
+
+# --- Precompiled patterns & cached helpers for Jyutping rendering ---
+TONE_RX = re.compile(r"([1-6])$")  # last char tone digit
+
+def _tone_of(syl: str) -> str:
+    """Return tone digit ('1'..'6') or '' if none."""
+    m = TONE_RX.search(syl)
+    return m.group(1) if m else ""
+
+@lru_cache(maxsize=4096)
+def _safe_split_syllables_cached(s: str):
+    # Delegate to your existing splitter if present; otherwise whitespace split
+    try:
+        parts = _safe_split_syllables(s)  # your existing function
+        return tuple(parts)
+    except Exception:
+        return tuple(x for x in s.split() if x)
+
+@lru_cache(maxsize=1024)
+def _segment_text_cached(text: str):
+    # Try pycantonese segmenters; fall back to naive CJK-per-char when needed
+    try:
+        if hasattr(pycantonese, "word_segment"):
+            seg = tuple(pycantonese.word_segment(text) or [])
+        elif hasattr(pycantonese, "segment"):
+            seg = tuple(pycantonese.segment(text) or [])
+        else:
+            seg = tuple()
+    except Exception:
+        seg = tuple()
+    if len(seg) >= 2:
+        return seg
+    # naive fallback: split CJK chars only if we can get at least 2
+    try:
+        chars = tuple(ch for ch in text if CJK_RE.match(ch))
+        if len(chars) >= 2:
+            return chars
+    except Exception:
+        pass
+    return (text,) if text else tuple()
+
+@lru_cache(maxsize=2048)
+def _chars_to_jyutping_cached(s: str):
+    try:
+        res = pycantonese.characters_to_jyutping(s) or []
+        return tuple(res)
+    except Exception:
+        return tuple()
+
+def _resolve_jp_style():
+    try:
+        label = (globals().get("CURRENT_JYUTPING_MODE") or JYUTPING_MODE_DEFAULT)
+    except Exception:
+        label = JYUTPING_MODE_DEFAULT
+    return LABEL_TO_STYLE.get(label, "learner").strip().lower()
+
+def _jyut_marker():
+    return JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
+
+def _build_jyut_tokens(text: str, fallback_jp: str):
+    """Return list of (token_text, fg_color_or_None) for the current style, including Borders marker."""
+    style = _resolve_jp_style()
+    marker = _jyut_marker()
+
+    segments = _segment_text_cached(text)
+
+    # Build per-word syllables
+    words = []  # list[list[str]]
+    for w in segments:
+        jps = _chars_to_jyutping_cached(w)
+        flat = []
+        for item in jps:
+            for syl in _safe_split_syllables_cached(item):
+                if syl:
+                    flat.append(syl)
+        if not flat and fallback_jp:
+            flat = [s for s in _safe_split_syllables_cached(fallback_jp) if s]
+        words.append(flat)
+
+    tokens = []  # (text, fg)
+    for wi, syls in enumerate(words):
+        for si, syl in enumerate(syls):
+            tone = _tone_of(syl)
+            fg = _tone_fg(tone) or JP_DEFAULT_FG
+            tokens.append((syl, fg))
+            if style == "learner" and si < len(syls) - 1:
+                tokens.append((" ", JP_DEFAULT_FG))
+        if wi < len(words) - 1:
+            if style == "strict_with_word_boundaries":
+                tokens.append((str(marker), JP_DEFAULT_FG))
+            else:
+                tokens.append((" ", JP_DEFAULT_FG))
+    return tokens
 
 def to_simplified(text: str) -> str:
     """Convert Traditional → Simplified if OpenCC is available; otherwise return input."""
@@ -1935,6 +2038,9 @@ class App(tk.Tk):
                     child.destroy()
             except Exception:
                 pass
+            # reset label pool so renderer recreates labels with JP_ANSWER_FONT
+            self._jp_labels = []
+
         # Clear the Details box
         if hasattr(self, "details"):
             self.details.delete("1.0", tk.END)
@@ -2047,13 +2153,6 @@ class App(tk.Tk):
                             jp = jp_click
                 except Exception:
                     pass
-
-            # Trigger Jyutping formatter once to emit debug info about segmentation/mode
-            try:
-                if DEBUG:
-                    _ = _format_jyutping_for_display(text, jp)
-            except Exception:
-                pass
 
             # --- Listen & Choose Option B: chances logic ---
             try:
@@ -2205,82 +2304,49 @@ class App(tk.Tk):
         return handler
 
     def _render_jyutping_colored(self, text: str, fallback_jp: str):
-        """
-        Render Jyutping with per-syllable colors according to TONE_COLOURS.
-        Honors JYUTPING_MODE_DEFAULT ('learner' | 'strict' | 'strict_with_word_boundaries').
-        """
-        # Clear previous content
+        """Render Jyutping tokens into jp_answer_frame with minimal widget churn."""
+        # Build tokens for current style (includes Borders marker if selected)
+        tokens = _build_jyut_tokens(text, fallback_jp)
+        big_font = JP_ANSWER_FONT
+
+        # Ensure label pool exists
+        if not hasattr(self, "_jp_labels"):
+            self._jp_labels = []
+
+        # Font (match existing look)
+        # big_font = ("Helvetica", 36, "bold")
+        big_font = JP_ANSWER_FONT
+        bg = self.cget("bg")
+
+        # Grow: create labels as needed
+        while len(self._jp_labels) < len(tokens):
+            lbl = tk.Label(self.jp_answer_frame, text="", font=big_font, bg=bg)
+            lbl.pack(side="left")
+            self._jp_labels.append(lbl)
+        # Shrink: destroy extras
+        while len(self._jp_labels) > len(tokens):
+            lbl = self._jp_labels.pop()
+            try:
+                lbl.destroy()
+            except Exception:
+                pass
+
+        # Update all labels in place
+        for lbl, (txt, fg) in zip(self._jp_labels, tokens):
+            try:
+                lbl.configure(text=txt, fg=(fg or JP_DEFAULT_FG), font=JP_ANSWER_FONT)
+            except Exception:
+                lbl.configure(text=txt, fg=JP_DEFAULT_FG, font=JP_ANSWER_FONT)
+
+        # Optional DEBUG summary
         try:
-            for child in self.jp_answer_frame.winfo_children():
-                child.destroy()
+            if DEBUG:
+                style = _resolve_jp_style()
+                dbg_text = "".join(t for t, _ in tokens)
+                print(f"[DBG] render: style={style} tokens={len(tokens)} out={dbg_text}")
         except Exception:
             pass
-        # Respect the CURRENT_JYUTPING_MODE (label) selected in the UI, fallback to default
-        try:
-            _label = (globals().get("CURRENT_JYUTPING_MODE") or JYUTPING_MODE_DEFAULT)
-        except Exception:
-            _label = JYUTPING_MODE_DEFAULT
-        style = LABEL_TO_STYLE.get(_label, "learner").strip().lower()
-        marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
-        # Build segments (words) first
-        segments = None
-        try:
-            if hasattr(pycantonese, "word_segment"):
-                segments = pycantonese.word_segment(text)
-            elif hasattr(pycantonese, "segment"):
-                segments = pycantonese.segment(text)
-        except Exception:
-            segments = None
-        words = []
-        if isinstance(segments, (list, tuple)) and segments:
-            word_list = segments
-        else:
-            word_list = [text] if text else []
-        # For each word, collect syllables (strings like 'gwong2', 'bo3')
-        for w in word_list:
-            try:
-                jps = pycantonese.characters_to_jyutping(w) or []
-            except Exception:
-                jps = []
-            # Use robust Jyutping splitter
-            flat = []
-            for item in jps:
-                for syl in _safe_split_syllables(item):
-                    if syl:
-                        flat.append(syl)
-            if not flat and fallback_jp:
-                flat = [syl for syl in _safe_split_syllables(fallback_jp) if syl]
-            words.append(flat)
-        # Now render syllables according to style
-        big_font = ("Helvetica", 36, "bold")
 
-        def _add_text(txt, fg=None):
-            lbl = tk.Label(self.jp_answer_frame, text=txt, font=big_font, fg=fg, bg=self.cget("bg"))
-            # No vertical padding; keeps row height stable on first draw
-            lbl.pack(side="left")
-
-        for wi, syls in enumerate(words):
-            for si, syl in enumerate(syls):
-                # Determine tone color
-                tone = ""
-                for ch in reversed(syl):
-                    if ch in "123456":
-                        tone = ch
-                        break
-                fg = TONE_COLOURS.get(tone, None)
-                # Decide printable syllable chunk (keep the full syl as-is)
-                chunk = syl
-                _add_text(chunk, fg=fg)
-                # Add spacing inside word depending on style
-                if style == "learner" and si < len(syls) - 1:
-                    _add_text(" ")
-                # In strict styles, no spacing between syllables within word
-            # Word boundary: insert either a visible marker (Borders) or a normal space (Learner/Strict)
-            if wi < len(words) - 1:
-                if style == "strict_with_word_boundaries":
-                    _add_text(str(marker))  # separate label, so colouring logic above doesn't strip it
-                else:
-                    _add_text(" ")
 
     def _show_chances(self):
         """Show the standard chances message using current remaining_chances with correct pluralization."""
