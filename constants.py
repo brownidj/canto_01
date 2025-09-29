@@ -16,9 +16,12 @@ TONE_COLOURS = {
     "1": "#2E89E6",  # High level: slightly darker blue for distinction from #33CCFF
     "2": "#33CCFF",  # High rising: bright sky-blue/teal (improved visibility)
     "3": "#9C27B0",  # Mid level: lighter purple (better visibility against light grey background)
-    "4": "#E65100",  # Low falling: vivid orange (more saturated/darker for contrast)
-    "5": "#FF8F00",  # Low rising: bright amber (more saturated for contrast)
-    "6": "#A1887F",  # Low level: lighter brown (lighter for better contrast)
+    # "4": "#E65100",  # Low falling: vivid orange (more saturated/darker for contrast)
+    "4": "#a85b03",  # Low falling: vivid orange (more saturated/darker for contrast)
+    # "5": "#FF8F00",  # Low rising: bright amber (more saturated for contrast)
+    "5": "#FCA902",  # Low rising: bright amber (more saturated for contrast)
+    # "6": "#A1887F",  # Low level: lighter brown (lighter for better contrast)
+    "6": "#D68F02",  # Low level: lighter brown (lighter for better contrast)
 }
 
 TONE_KEY_TEXT_COLOURS = {

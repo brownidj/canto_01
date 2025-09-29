@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import collections
 import os
-# Audio helpers for TTS (non-blocking)
 import platform
 import random
 import re
@@ -10,6 +9,7 @@ import subprocess
 import threading
 import tkinter as tk
 import warnings
+import pycantonese
 from tkinter import ttk, messagebox, scrolledtext
 
 from constants import (BOTH_CHAR_RATIO,
@@ -116,6 +116,15 @@ except Exception:
     _opencc_t2s = None
 # --- Robust Jyutping syllable splitter ---
 _JP_SYL_RE = re.compile(r"[a-z]+[1-6]", flags=re.IGNORECASE)
+
+#Various helpers
+def _safe(call, *args, **kwargs):
+    try:
+        return call(*args, **kwargs)
+    except Exception as e:
+        if DEBUG:
+            print("[DBG][squelched]", call, e)
+        return None
 
 # Jyutping helpers
 def _safe_split_syllables(jp_chunk: str) -> list[str]:
