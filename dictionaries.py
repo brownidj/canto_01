@@ -168,7 +168,31 @@ ANDYS_LIST = {
     u"零": ["zero"],
     u"我": ["I", "me"],
     u"人": ["person"],
-    u"者": ["he", "she", "they"],
+    u"者": ["he", "she", "they"]
+}
+
+DISTINCT_CANTONESE_FORMS = {
+    u"唔": [u"not, no"],
+    u"冇": [u"not have, without"],
+    u"睇": [u"look, see, watch"],
+    u"嘢": [u"thing, stuff"],
+    u"食嘢": [u"eat (something), have a meal/snack"],
+    u"飲嘢": [u"drink (something), have a drink"],
+    u"廣東話": [u"Cantonese (language)"],
+    u"佢": [u"he/she/they (sing.)"],
+    u"香港": [u"Hong Kong"],
+    u"呢": [u"this, (sentence particle)"],
+    u"嘅": [u"(particle: possessive, descriptive)"],
+    u"咗": [u"(aspect particle: completed action)"],
+    u"啦": [u"(particle: sentence-final, suggestion/softener)"],
+    u"喺": [u"to be at, in (location marker)"],
+    u"咩": [u"(particle: question, surprise)"],
+    u"哋": [u"(plural suffix for pronouns)"],
+    u"吓": [u"(particle: short duration, softening)"],
+    u"嗰": [u"that (demonstrative)"],
+    u"邊度": [u"where"],
+    u"點解": [u"why"],
+    u"點樣": [u"how"],
 }
 
 TEST_WORDS = {
