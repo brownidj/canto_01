@@ -63,12 +63,8 @@ try:
 except Exception:
     TTS_RATE_DEFAULT = 180
 
-# --- Import Jyutping display formatting options from settings.py, with safe defaults ---
-try:
-    from settings import JYUTPING_WORD_BOUNDARY_MARKER
-except Exception:
-    JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
+#
 # --- Jyutping label/style mappings (module-level) ---
 STYLE_TO_LABEL = {
     "learner": "Learner",
@@ -76,6 +72,9 @@ STYLE_TO_LABEL = {
     "strict_with_word_boundaries": "Borders",
 }
 LABEL_TO_STYLE = {v: k for k, v in STYLE_TO_LABEL.items()}
+
+# Visible word boundary marker used in Jyutping "Borders" mode. Kept local (only used in app.py).
+JYUTPING_WORD_BOUNDARY_MARKER = " · "
 
 # Ensure CURRENT_JYUTPING_MODE exists as a label (UI value); default from settings
 try:
@@ -640,6 +639,16 @@ def _format_jyutping_for_display(text: str, fallback_jp: str) -> str:
     except Exception:
         segments = None
 
+    # Fallback: if segmentation failed or produced <2 segments, try naive CJK-per-char segmentation
+    if not isinstance(segments, (list, tuple)) or len(segments) < 2:
+        try:
+            # Prefer splitting into individual CJK characters (acts like word boundaries in Borders mode)
+            chars = [ch for ch in text if CJK_RE.match(ch)]
+            if len(chars) >= 2:
+                segments = chars
+        except Exception:
+            pass
+
     words = []
     try:
         if isinstance(segments, (list, tuple)) and len(segments) >= 2:
@@ -681,13 +690,43 @@ def _format_jyutping_for_display(text: str, fallback_jp: str) -> str:
             words = []
 
     # Debug trace (optional)
+    # Debug trace (optional)
     try:
         if DEBUG:
             seg_count = (len(segments) if isinstance(segments, (list, tuple)) else "n/a")
-            print(f"[DBG] jpfmt: seg={seg_count} words={len(words)} style={style}")
+            try:
+                words_list = list(words) if isinstance(words, (list, tuple)) else []
+            except Exception:
+                words_list = []
+            print(
+                f"[DBG] jpfmt: seg={seg_count} words={len(words)} label={_label} style={style} "
+                f"hanzi={repr(text)} words_list={words_list}"
+            )
     except Exception:
         pass
 
+    # Aggressive fallback for Borders: if we still have <2 words, fall back to syllable-level boundaries
+    if style == "strict_with_word_boundaries" and (not isinstance(words, (list, tuple)) or len(words) < 2):
+        sylls = []
+        try:
+            # Prefer syllables from fallback_jp if provided
+            if fallback_jp:
+                fb = _norm_jyut(fallback_jp)
+                if fb:
+                    sylls = [s for s in fb.split() if s]
+            # If no fallback syllables, derive per-character Jyutping from the text
+            if not sylls:
+                try:
+                    per_char = pycantonese.characters_to_jyutping(text) or []
+                except Exception:
+                    per_char = []
+                sylls = [_norm_jyut(j) for j in per_char if _norm_jyut(j)]
+        except Exception:
+            sylls = []
+
+        if len(sylls) >= 2:
+            # Join each syllable (no internal spaces) with the visible marker
+            return str(marker).join(s.replace(" ", "") for s in sylls)
     # Style application
     if style == "strict":
         # Remove spaces inside each word; keep a single space between segmented words
@@ -1091,6 +1130,11 @@ class App(tk.Tk):
             jyutping_mode=JYUTPING_MODE_DEFAULT,
             tts_rate=TTS_RATE_DEFAULT,
         ))
+
+        try:
+            globals()["CURRENT_JYUTPING_MODE"] = self.prefs.jyutping_mode
+        except Exception:
+            pass
 
         # Initialize runtime state early to avoid AttributeError before first shuffle
         self.selected_label = None
@@ -2004,6 +2048,13 @@ class App(tk.Tk):
                 except Exception:
                     pass
 
+            # Trigger Jyutping formatter once to emit debug info about segmentation/mode
+            try:
+                if DEBUG:
+                    _ = _format_jyutping_for_display(text, jp)
+            except Exception:
+                pass
+
             # --- Listen & Choose Option B: chances logic ---
             try:
                 play_mode = (self.play_mode_var.get() or "").strip().lower()
@@ -2164,7 +2215,12 @@ class App(tk.Tk):
                 child.destroy()
         except Exception:
             pass
-        style = (JYUTPING_MODE_DEFAULT or "learner").strip().lower()
+        # Respect the CURRENT_JYUTPING_MODE (label) selected in the UI, fallback to default
+        try:
+            _label = (globals().get("CURRENT_JYUTPING_MODE") or JYUTPING_MODE_DEFAULT)
+        except Exception:
+            _label = JYUTPING_MODE_DEFAULT
+        style = LABEL_TO_STYLE.get(_label, "learner").strip().lower()
         marker = JYUTPING_WORD_BOUNDARY_MARKER if JYUTPING_WORD_BOUNDARY_MARKER is not None else " · "
         # Build segments (words) first
         segments = None
@@ -2219,10 +2275,10 @@ class App(tk.Tk):
                 if style == "learner" and si < len(syls) - 1:
                     _add_text(" ")
                 # In strict styles, no spacing between syllables within word
-            # Word boundary
+            # Word boundary: insert either a visible marker (Borders) or a normal space (Learner/Strict)
             if wi < len(words) - 1:
                 if style == "strict_with_word_boundaries":
-                    _add_text(str(marker))
+                    _add_text(str(marker))  # separate label, so colouring logic above doesn't strip it
                 else:
                     _add_text(" ")
 
