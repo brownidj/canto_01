@@ -1255,6 +1255,8 @@ def entries_from_gloss_dict(gloss_dict):
 class App(tk.Tk):
     def __init__(self):
         tk.Tk.__init__(self)
+        self.main_frame = tk.Frame(self)
+        self.main_frame.pack(fill="both", expand=True)
         self.title(APP_TITLE)
 
         # Preferences: load or fall back to defaults
@@ -1299,7 +1301,7 @@ class App(tk.Tk):
         self._err_after_id = None  # timer handle for temporary error message in Instructions
 
         # Controls
-        ctrl = ttk.Frame(self, padding=10)
+        ctrl = ttk.Frame(self.main_frame, padding=10)
         ctrl.grid(row=0, column=0, sticky="ew")
         # Ensure the controls row (row 0) is tall enough to fit three radio buttons
         try:
@@ -1561,7 +1563,7 @@ class App(tk.Tk):
         # --- Debug overlay for ctrl grid ---
 
         # --- Status row below ctrl: tone legend (left) + Jyutping answer (right) ---
-        status = ttk.Frame(self)
+        status = ttk.Frame(self.main_frame)
         status.grid(row=1, column=0, sticky="ew")
         status.grid_columnconfigure(0, weight=0)
         status.grid_columnconfigure(1, weight=1)
@@ -1595,7 +1597,7 @@ class App(tk.Tk):
             pass
 
         # Grid for 1 × 5 tiles
-        self.tile_frame = ttk.Frame(self, padding=10)
+        self.tile_frame = ttk.Frame(self.main_frame, padding=10)
         self.tile_frame.grid(row=2, column=0, sticky="nsew")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -1655,10 +1657,24 @@ class App(tk.Tk):
             self.containers.append(cont)
             self.label_to_container[lbl] = cont
 
-        # Details box below the grid with a thin border and title "DETAILS"
-        details_frame = tk.LabelFrame(self, text="MEANINGS & SOME PRONUNCIATION HINTS", bd=1, relief="solid", labelanchor="nw", padx=6, pady=6)
+        # --- Outer details_frame container ---
+        details_frame = tk.LabelFrame(self.main_frame, relief="groove", labelanchor="nw", padx=2, pady=2)
         details_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        self.details = scrolledtext.ScrolledText(details_frame, height=9, wrap=tk.WORD)
+
+        # Inside details_frame: left video_frame (20%), right meanings_frame (80%)
+        video_frame = tk.LabelFrame(details_frame, text="Video", bd=2, relief="solid", labelanchor="nw", bg="#dddddd")
+        video_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=0)
+
+        meanings_frame = tk.LabelFrame(details_frame, text="Meanings and Pronunciation", relief="groove", labelanchor="nw", padx=2, pady=2)
+        meanings_frame.grid(row=0, column=1, sticky="nsew", padx=(0, 0), pady=0)
+
+        # Configure column weights for 20/80 split
+        details_frame.grid_columnconfigure(0, weight=1, uniform="split")
+        details_frame.grid_columnconfigure(1, weight=4, uniform="split")
+        details_frame.grid_rowconfigure(0, weight=1)
+
+        # Text area inside meanings_frame
+        self.details = scrolledtext.ScrolledText(meanings_frame, height=9, wrap=tk.WORD)
         self.details.configure(font=("Helvetica", 16))
         self.details.pack(fill="both", expand=True)
         self._current_initial_for_help = ""
